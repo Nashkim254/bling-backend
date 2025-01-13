@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:bling/app/http/controllers/session_controller.dart';
 import 'package:bling/app/models/user.dart';
 import 'package:vania/vania.dart';
 
@@ -21,7 +22,8 @@ class AuthController extends Controller {
     String password = body['password'];
     print(body);
     var user = await User().query().where('email', '=', email).first();
-    if (user == null) {
+    print(user);
+    if (user != null) {
       Map<String, String> responseBody = {
         'message': 'User already exists',
       };
@@ -31,8 +33,7 @@ class AuthController extends Controller {
     body['password'] = hashedPass;
     body['created_at'] = DateTime.now();
     body['updated_at'] = DateTime.now();
-
-    print(body);
+    
     await User().query().insert(body);
 
     Map<String, String> responseBody = {
@@ -53,7 +54,6 @@ class AuthController extends Controller {
     Map<String, dynamic> body = request.body;
     String email = body['email'];
     String password = body['password'];
-    print(body);
     var user = await User().query().where('email', '=', email).first();
     if (user == null) {
       Map<String, String> responseBody = {
@@ -61,18 +61,22 @@ class AuthController extends Controller {
       };
       return Response.json(responseBody, 404);
     }
-    bool isPasswordValid = Hash().verify(password, user['password']);
-    if (!isPasswordValid) {
+    if (!Hash().verify(password, user['password'])) {
       Map<String, String> responseBody = {
         'message': 'Unauthorized',
       };
       return Response.json(responseBody, HttpStatus.unauthorized);
     }
 
-    Map<String, String> responseBody = {
-      'message': 'Login successful',
+    Map<String, dynamic> session = await SessionController().createSession(
+      userId: user['id'],
+    );
+    Map<String, dynamic> result = {
+      'token': session['token'],
+      'expiry': session['expires_at'],
+      'username': user['username'],
     };
-    return Response.json(responseBody, HttpStatus.ok);
+    return Response.json(result, HttpStatus.ok);
   }
 }
 
