@@ -20,9 +20,7 @@ class AuthController extends Controller {
     Map<String, dynamic> body = request.body;
     String email = body['email'];
     String password = body['password'];
-    print(body);
     var user = await User().query().where('email', '=', email).first();
-    print(user);
     if (user != null) {
       Map<String, String> responseBody = {
         'message': 'User already exists',
@@ -33,7 +31,7 @@ class AuthController extends Controller {
     body['password'] = hashedPass;
     body['created_at'] = DateTime.now();
     body['updated_at'] = DateTime.now();
-    
+
     await User().query().insert(body);
 
     Map<String, String> responseBody = {
@@ -67,15 +65,17 @@ class AuthController extends Controller {
       };
       return Response.json(responseBody, HttpStatus.unauthorized);
     }
-
+       print("session: ${user['id']}");
     Map<String, dynamic> session = await SessionController().createSession(
-      userId: user['id'],
+      userId: user['id'].toString(),
     );
+    print("session: $session");
     Map<String, dynamic> result = {
       'token': session['token'],
       'expiry': session['expires_at'],
       'username': user['username'],
     };
+
     return Response.json(result, HttpStatus.ok);
   }
 }

@@ -10,7 +10,7 @@ class CreateUserTable extends Migration {
       char('username', length: 100);
       char('email', length: 100);
       char('msisdn', length: 20);
-      char('password', length: 255);
+      string('password', length: 200);
       char('avatar', length: 50);
       char('account_type', length: 50, defaultValue: 'public');
       char('bio', length: 255);

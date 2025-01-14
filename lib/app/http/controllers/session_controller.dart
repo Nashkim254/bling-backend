@@ -6,12 +6,13 @@ class SessionController extends Controller {
   var uuid = Uuid();
 
   Future<Map<String, dynamic>> createSession({required String userId}) async {
+    String token = HasApiTokens().createToken()['access_token'];
+    print("Token: $token");
     Map<String, dynamic> values = {
-      'id': uuid.v1(),
       'user_id': userId,
       'status': 'active',
       'type': 'user',
-      'token': HasApiTokens().createToken(),
+      'token': token,
       'expires_at': DateTime.now().add(
         const Duration(hours: 1),
       ),
