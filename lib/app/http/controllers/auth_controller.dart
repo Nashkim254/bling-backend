@@ -65,11 +65,9 @@ class AuthController extends Controller {
       };
       return Response.json(responseBody, HttpStatus.unauthorized);
     }
-       print("session: ${user['id']}");
     Map<String, dynamic> session = await SessionController().createSession(
       userId: user['id'].toString(),
     );
-    print("session: $session");
     Map<String, dynamic> result = {
       'token': session['token'],
       'expiry': session['expires_at'],

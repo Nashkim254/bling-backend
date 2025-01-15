@@ -33,7 +33,7 @@ class SessionController extends Controller {
     return Response.json({});
   }
 
-  Future<Response> update(Request request, int id) async {
+  Future<Response> updateSession({required String userId,required String status, }) async {
     return Response.json({});
   }
 
