@@ -25,7 +25,7 @@ class SessionController extends Controller {
     return Response.json({});
   }
 
-  Future<Response> show(int id) async {
+  Future<Response> getSessionById(int id) async {
     return Response.json({});
   }
 
@@ -48,8 +48,13 @@ class SessionController extends Controller {
     return body;
   }
 
-  Future<Response> destroy(int id) async {
-    return Response.json({});
+  Future<Map<String, dynamic>> destroy(int id) async {
+    Session().query().where('id', '==', id).delete();
+    Map<String, dynamic> body = {
+      'id': id,
+      'status': 'deleted',
+    };
+    return body;
   }
 }
 
