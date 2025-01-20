@@ -33,8 +33,19 @@ class SessionController extends Controller {
     return Response.json({});
   }
 
-  Future<Response> updateSession({required String userId,required String status, }) async {
-    return Response.json({});
+  Future<Map<String, dynamic>> updateSession(
+      {required String userId,
+      required String status,
+      required String type,
+      required String id}) async {
+    Map<String, dynamic> body = {
+      'status': status,
+      'userId': userId,
+      'type': type,
+    };
+    Session().query().where('id', '==', id).update(body);
+
+    return body;
   }
 
   Future<Response> destroy(int id) async {
