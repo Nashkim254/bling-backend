@@ -13,11 +13,13 @@ class SessionController extends Controller {
       'status': 'active',
       'type': 'user',
       'token': token,
+      'created_at': DateTime.now(),
+      'updated_at': DateTime.now(),
       'expires_at': DateTime.now().add(
         const Duration(hours: 1),
       ),
     };
-    Session().query().insert(values);
+    await Session().query().insert(values);
     return values;
   }
 
@@ -26,11 +28,31 @@ class SessionController extends Controller {
   }
 
   Future<Response> getSessionById(int id) async {
-    return Response.json({});
+    var session = await Session().query().where('id', '==', id).select([
+      'id',
+      'user_id',
+      'status',
+      'type',
+      'expires_at',
+      'token',
+      'created_at',
+      'updated_at'
+    ]).first();
+    return Response.json(session);
   }
 
-  Future<Response> edit(int id) async {
-    return Response.json({});
+  Future<Response> getSessionByToken(String token) async {
+    var session = await Session().query().where('token', '==', token).select([
+      'id',
+      'user_id',
+      'status',
+      'type',
+      'expires_at',
+      'token',
+      'created_at',
+      'updated_at'
+    ]).first();
+    return Response.json(session);
   }
 
   Future<Map<String, dynamic>> updateSession(
@@ -43,13 +65,13 @@ class SessionController extends Controller {
       'userId': userId,
       'type': type,
     };
-    Session().query().where('id', '==', id).update(body);
+    await Session().query().where('id', '==', id).update(body);
 
     return body;
   }
 
   Future<Map<String, dynamic>> destroy(int id) async {
-    Session().query().where('id', '==', id).delete();
+    await Session().query().where('id', '==', id).delete();
     Map<String, dynamic> body = {
       'id': id,
       'status': 'deleted',
