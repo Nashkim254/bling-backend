@@ -70,6 +70,7 @@ class AuthController extends Controller {
     );
     Map<String, dynamic> result = {
       'token': session['token'],
+      'user_id': session['user_id'],
       'expiry': session['expires_at'],
       'username': user['username'],
     };

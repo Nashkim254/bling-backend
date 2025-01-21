@@ -70,7 +70,7 @@ class SessionController extends Controller {
     return body;
   }
 
-  Future<Map<String, dynamic>> destroy(int id) async {
+  Future<Map<String, dynamic>> deleteSession(int id) async {
     await Session().query().where('id', '==', id).delete();
     Map<String, dynamic> body = {
       'id': id,
