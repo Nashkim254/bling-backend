@@ -6,7 +6,7 @@ class SessionController extends Controller {
   var uuid = Uuid();
 
   Future<Map<String, dynamic>> createSession({required String userId}) async {
-    String token = HasApiTokens().createToken()['access_token'];
+    String token = '';
     print("Token: $token");
     Map<String, dynamic> values = {
       'user_id': userId,
@@ -41,7 +41,7 @@ class SessionController extends Controller {
     return Response.json(session);
   }
 
-  Future<Response> getSessionByToken(String token) async {
+  Future<Map<String, dynamic>> getSessionByToken(String token) async {
     var session = await Session().query().where('token', '==', token).select([
       'id',
       'user_id',
@@ -52,7 +52,7 @@ class SessionController extends Controller {
       'created_at',
       'updated_at'
     ]).first();
-    return Response.json(session);
+    return session!;
   }
 
   Future<Map<String, dynamic>> updateSession(

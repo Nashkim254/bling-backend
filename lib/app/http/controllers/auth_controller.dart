@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:bling/app/http/controllers/session_controller.dart';
 import 'package:bling/app/models/user.dart';
 import 'package:vania/vania.dart';
 
@@ -65,13 +64,18 @@ class AuthController extends Controller {
       };
       return Response.json(responseBody, HttpStatus.unauthorized);
     }
-    Map<String, dynamic> session = await SessionController().createSession(
-      userId: user['id'].toString(),
-    );
+
+    final auth = Auth().login(user);
+    final token = await auth.createToken(expiresIn: Duration(hours: 1));
+    print(token);
+    String accessToken = token['access_token'];
+    // Map<String, dynamic> session = await SessionController().createSession(
+    //   userId: user['id'].toString(),
+    // );
     Map<String, dynamic> result = {
-      'token': session['token'],
-      'user_id': session['user_id'],
-      'expiry': session['expires_at'],
+      'token': accessToken,
+      'user_id': user['id'],
+      'expiry': DateTime.now().add(const Duration(hours: 1)),
       'username': user['username'],
     };
 

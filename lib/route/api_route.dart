@@ -1,4 +1,6 @@
 import 'package:bling/app/http/controllers/auth_controller.dart';
+import 'package:bling/app/http/controllers/home_controller.dart';
+import 'package:bling/app/http/middleware/authenticate.dart';
 import 'package:vania/vania.dart';
 
 class ApiRoute implements Route {
@@ -8,5 +10,9 @@ class ApiRoute implements Route {
     Router.basePrefix('api');
     Router.post('/register', authController.register);
     Router.post('/login', authController.login);
+
+    Router.group(() {
+      Router.post('/posts', homeController.getPosts);
+    }, middleware: [AuthenticateMiddleware()]);
   }
 }
