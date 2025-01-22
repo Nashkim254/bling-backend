@@ -15,6 +15,7 @@ class CreatePostsTable extends Migration {
       integer('reposts');
       integer('is_active');
       string('image_url');
+      timeStamp("deleated_at", nullable: true);
       timeStamps();
     });
   }

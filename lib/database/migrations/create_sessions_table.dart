@@ -9,8 +9,8 @@ class CreateSessionsTable extends Migration {
       char("user_id");
       char("status");
       char("type");
-      char("token",length: 255);
-      timeStamp('expires_at');
+      char("token", length: 255);
+      timeStamp('expires_at', nullable: true);
       timeStamps();
     });
   }
