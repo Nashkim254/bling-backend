@@ -13,7 +13,9 @@ class ApiRoute implements Route {
 
     Router.group(() {
       Router.post('/get/posts', homeController.getPosts);
+      Router.post('/get/reposts', homeController.getReposts);
       Router.post('/create/post', homeController.createPost);
+      Router.post('/create/like', homeController.createLike);
     }, middleware: [AuthenticateMiddleware()]);
   }
 }
