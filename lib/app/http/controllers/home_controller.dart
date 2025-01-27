@@ -6,16 +6,7 @@ import 'package:bling/app/models/reposts_model.dart';
 import 'package:vania/vania.dart';
 
 class HomeController extends Controller {
-  Future<Response> getPosts(Request request) async {
-    String userId = request.input('userId');
-    if (userId.isNotEmpty) {
-      final posts = await Posts().query().where('user_id', '=', userId).get();
-      return Response.json({'posts': posts}, HttpStatus.ok);
-    }
-    return Response.json({
-      'message': 'malformed request',
-    }, 422);
-  }
+
 
   Future<Response> createPost(Request request) async {
     Map<String, dynamic> body = request.body;
