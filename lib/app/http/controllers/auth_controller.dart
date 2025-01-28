@@ -64,16 +64,21 @@ class AuthController extends Controller {
       };
       return Response.json(responseBody, HttpStatus.unauthorized);
     }
-    final auth = Auth().login(user);
-    final token = await auth.createToken(expiresIn: Duration(hours: 1));
-    print("token------------>${token}");
-    print(token);
-    String accessToken = token['access_token'];
+
+    String accessToken = '';
+    try {
+      final auth = Auth().login(user);
+      user['created_at'] = user['created_at'].toIso8601String();
+      user['updated_at'] = user['updated_at'].toIso8601String();
+      final token = await auth.createToken(expiresIn: Duration(hours: 1));
+      accessToken = token['access_token'];
+    } catch (e) {
+      print('Exception while creating token: $e');
+    }
     // Map<String, dynamic> session = await SessionController().createSession(
     //   userId: user['id'].toString(),
     // );
     String expiry = DateTime.now().add(const Duration(hours: 1)).toString();
-    print('expiry------------>$expiry');
     Map<String, dynamic> result = {
       'token': accessToken,
       'user_id': user['id'],
