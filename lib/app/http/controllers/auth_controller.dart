@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math';
 
 import 'package:bling/app/models/user.dart';
 import 'package:vania/vania.dart';
@@ -52,7 +51,6 @@ class AuthController extends Controller {
     Map<String, dynamic> body = request.body;
     String email = body['email'];
     String password = body['password'];
-    print('body------------>$body');
     var user = await User().query().where('email', '=', email).first();
     if (user == null) {
       Map<String, String> responseBody = {

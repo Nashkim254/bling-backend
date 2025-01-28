@@ -1,34 +1,23 @@
+import 'dart:io';
+
+import 'package:bling/app/models/hashtags_model.dart';
 import 'package:vania/vania.dart';
 
 class HashtagsController extends Controller {
-
-     Future<Response> index() async {
-          return Response.json({'message':'Hello World'});
-     }
-
-     Future<Response> create() async {
-          return Response.json({});
-     }
-
-     Future<Response> store(Request request) async {
-          return Response.json({});
-     }
-
-     Future<Response> show(int id) async {
-          return Response.json({});
-     }
-
-     Future<Response> edit(int id) async {
-          return Response.json({});
-     }
-
-     Future<Response> update(Request request,int id) async {
-          return Response.json({});
-     }
-
-     Future<Response> destroy(int id) async {
-          return Response.json({});
-     }
+    Future<Response> createHashtag(Request request) async {
+    Map<String, dynamic> body = request.body;
+    body['created_at'] = DateTime.now();
+    body['updated_at'] = DateTime.now();
+    try {
+      await HashtagsModel().query().insert(body);
+      return Response.json(
+          {'message': 'hashtag created successfully'}, HttpStatus.ok);
+    } catch (e) {
+      return Response.json({
+        'message': 'Error creating hashtag',
+      }, 422);
+    }
+  }
 }
 
 final HashtagsController hashtagsController = HashtagsController();
