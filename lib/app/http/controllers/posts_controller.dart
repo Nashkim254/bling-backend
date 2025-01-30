@@ -9,10 +9,7 @@ class PostsController extends Controller {
     String? userId = request.input('userId');
     int page = int.parse(request.input('page') ?? '1');
     int limit = int.parse(request.input('limit') ?? '10');
-    print(request.params());
-    print('------------------------------params----------------------------------');
-    print(page);
-    print(limit);
+ 
     // Check if userId is provided and not empty
     if (userId != null && userId.isNotEmpty) {
       try {

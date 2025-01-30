@@ -18,7 +18,7 @@ class ApiRoute implements Route {
 
     Router.group(() {
       Router.get('/get/posts', postsController.getPosts);
-      Router.post('/get/reposts', repostsController.getReposts);
+      Router.get('/get/reposts', repostsController.getReposts);
       Router.post('/create/post', postsController.createPost);
       Router.post('/create/like', likesController.createLike);
       Router.post('/create/challenge', challengesController.createChallenge);
