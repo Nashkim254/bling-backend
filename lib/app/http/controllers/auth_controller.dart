@@ -51,6 +51,8 @@ class AuthController extends Controller {
     Map<String, dynamic> body = request.body;
     String email = body['email'];
     String password = body['password'];
+    print(email);
+    print(password);
     var user = await User().query().where('email', '=', email).first();
     if (user == null) {
       Map<String, String> responseBody = {
@@ -59,10 +61,8 @@ class AuthController extends Controller {
       return Response.json(responseBody, 404);
     }
     if (!Hash().verify(password, user['password'])) {
-      Map<String, String> responseBody = {
-        'message': 'Unauthorized',
-      };
-      return Response.json(responseBody, HttpStatus.unauthorized);
+       print('unauthorized wrong password');
+      return Response.json({'message': 'Unauthorized'}, 401);
     }
 
     String accessToken = '';
