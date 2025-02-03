@@ -6,7 +6,8 @@ class CreateSharesTable extends Migration {
   Future<void> up() async{
    super.up();
    await createTableNotExists('shares', () {
-      id();
+      char('id');
+      primary('id');
       timeStamps();
     });
   }

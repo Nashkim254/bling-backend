@@ -5,7 +5,8 @@ class CreateSessionsTable extends Migration {
   Future<void> up() async {
     super.up();
     await createTableNotExists('sessions', () {
-      id();
+      char('id');
+      primary('id');
       char("user_id");
       char("status");
       char("type");

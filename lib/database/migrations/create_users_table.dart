@@ -5,7 +5,8 @@ class CreateUserTable extends Migration {
   Future<void> up() async {
     super.up();
     await createTableNotExists('users', () {
-      id();
+      char('id');
+      primary('id');
       char('name', length: 100);
       char('username', length: 100);
       char('email', length: 100);

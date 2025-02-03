@@ -21,7 +21,6 @@ class PostsController extends Controller {
             .join('likes', 'likes.user_id', '=', 'users.id')
             .join('hashtags', 'hashtags.user_id', '=', 'users.id')
             .groupBy('posts.id')
-            .where('user_id', '=', userId)
             .paginate(limit, page);
 
         // Return the posts in a JSON response

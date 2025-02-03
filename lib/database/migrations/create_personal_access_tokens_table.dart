@@ -7,7 +7,7 @@ class CreatePersonalAccessTokensTable extends Migration {
     await createTableNotExists('personal_access_tokens', () {
       id();
       char('name', length: 255);
-      bigInt('tokenable_id');
+      char('tokenable_id');
       char('token', length: 64, unique: true);
       timeStamp('deleated_at', nullable: true);
       timeStamps();

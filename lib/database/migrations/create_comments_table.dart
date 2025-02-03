@@ -5,7 +5,8 @@ class CreateCommentsTable extends Migration {
   Future<void> up() async {
     super.up();
     await createTableNotExists('comments', () {
-      id();
+      char('id');
+      primary('id');
       char("user_id");
       char("post_id");
       string("comment");

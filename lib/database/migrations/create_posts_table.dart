@@ -5,7 +5,8 @@ class CreatePostsTable extends Migration {
   Future<void> up() async {
     super.up();
     await createTableNotExists('posts', () {
-      id();
+      char('id');
+      primary('id');
       char("user_id");
       char("type");
       char("caption");
