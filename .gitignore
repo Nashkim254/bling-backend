@@ -4,3 +4,5 @@
 
 # Created by `Android Studio idea`
 .idea/
+.env
+service-account.json

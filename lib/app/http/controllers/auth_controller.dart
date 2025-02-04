@@ -66,12 +66,14 @@ class AuthController extends Controller {
     }
 
     String accessToken = '';
+    String refreshToken = '';
     try {
       final auth = Auth().login(user);
       user['created_at'] = user['created_at'].toIso8601String();
       user['updated_at'] = user['updated_at'].toIso8601String();
-      final token = await auth.createToken(expiresIn: Duration(hours: 1));
+      final token = await auth.createToken(expiresIn: Duration(hours: 1), withRefreshToken: true);
       accessToken = token['access_token'];
+      refreshToken = token['refresh_token'];
     } catch (e) {
       print('Exception while creating token: $e');
     }
@@ -81,6 +83,7 @@ class AuthController extends Controller {
     String expiry = DateTime.now().add(const Duration(hours: 1)).toString();
     Map<String, dynamic> result = {
       'token': accessToken,
+      'refresh_token': refreshToken,
       'user_id': user['id'],
       'expiry': expiry,
       'username': user['username'],

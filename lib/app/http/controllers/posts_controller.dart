@@ -1,7 +1,8 @@
 import 'dart:io';
 
-import 'package:bling/app/models/posts.dart';
 import 'package:vania/vania.dart';
+
+import 'package:bling/app/models/posts.dart';
 
 class PostsController extends Controller {
   Future<Response> getPosts(Request request) async {
@@ -9,7 +10,7 @@ class PostsController extends Controller {
     String? userId = request.input('userId');
     int page = int.parse(request.input('page') ?? '1');
     int limit = int.parse(request.input('limit') ?? '10');
- 
+
     // Check if userId is provided and not empty
     if (userId != null && userId.isNotEmpty) {
       try {
@@ -38,6 +39,11 @@ class PostsController extends Controller {
     return Response.json({
       'message': 'Malformed request: userId is required',
     }, HttpStatus.unprocessableEntity);
+  }
+
+// Function to Generate Signed URL
+  Future<String> generateSignedUrl(String fileName) async {
+    return '';
   }
 
   Future<Response> createPost(Request request) async {
