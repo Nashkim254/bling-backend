@@ -8,8 +8,8 @@ class CreateUserTable extends Migration {
       char('id');
       primary('id');
       char('name', length: 100);
-      char('username', length: 100);
-      char('email', length: 100);
+      char('username', length: 100, unique: true, nullable: false);
+      char('email', length: 100, unique: true, nullable: false);
       char('msisdn', length: 20);
       string('password', length: 200);
       char('avatar', length: 50);

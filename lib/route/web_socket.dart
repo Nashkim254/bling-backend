@@ -5,7 +5,12 @@ class WebSocketRoute implements Route {
   @override
   void register() {
     Router.websocket('/ws', (WebSocketEvent event) {
-      event.on('message', chatController.newMessage);
+      event.on('private_message', chatController.handlePrivateMessage);
+      event.on('typing_status', chatController.handleTypingStatus);
+      event.on('connect', (WebSocketClient client, dynamic payload) {
+        print('Client: $client');
+        client.emit('connected', {});
+      });
     });
   }
 }
