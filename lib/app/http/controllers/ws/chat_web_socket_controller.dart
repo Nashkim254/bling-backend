@@ -1,28 +1,42 @@
+import 'package:bling/app/models/chats.dart';
 import 'package:vania/vania.dart';
 
 class ChatWebSocketController extends Controller {
+  Set<String> onlineUsers = {};
   Function get onConnected => (WebSocketClient client) {
-        print('Client connected: ${client.clientId}');
+        onlineUsers.add(client.clientId);
         client.broadcast('user_connected', {'userId': client.clientId});
       };
 
   Function get onDisconnected => (WebSocketClient client) {
-        print('Client disconnected: ${client.clientId}');
+        onlineUsers.remove(client.clientId);
         client.broadcast('user_disconnected', {'userId': client.clientId});
       };
 
   // Handle private messages
-  void handlePrivateMessage(WebSocketClient client, dynamic data) {
-    print(client);
-    print("Client id:${client.clientId}");
+  void handlePrivateMessage(WebSocketClient client, dynamic data) async {
     final String toUserId = data['to'];
-    client.to(toUserId, 'private_message', {
-      'from': client.clientId,
+    final String userId = data['userId'];
+    final privateMessage = {
+      'from': userId,
+      'to': toUserId,
       'content': data['content'],
       'timestamp': DateTime.now().toIso8601String(),
-    });
+    };
+    await Chats().query().insert(privateMessage);
+    client.to(toUserId, 'private_message', privateMessage);
   }
-
+//Handle fetch chats
+void handleFetchChats(WebSocketClient client, dynamic data) async {
+    final String userId = client.clientId; // Get the user making the request
+    final List<Map<String, dynamic>> chats = await Chats()
+        .query()
+        .where('from', userId)
+        .orWhere('to', userId)
+        .orderBy('timestamp')
+        .get();
+    client.emit('chat_history', {'chats': chats});
+}
   // Handle room messages
   void handleRoomMessage(WebSocketClient client, dynamic data) {
     final String roomId = data['roomId'];

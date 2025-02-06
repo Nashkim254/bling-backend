@@ -21,6 +21,7 @@ class PostsController extends Controller {
             .join('comments', 'comments.user_id', '=', 'users.id')
             .join('likes', 'likes.user_id', '=', 'users.id')
             .join('hashtags', 'hashtags.user_id', '=', 'users.id')
+            .where( 'user_id',  userId)
             .groupBy('posts.id')
             .paginate(limit, page);
 

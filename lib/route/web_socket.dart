@@ -7,6 +7,8 @@ class WebSocketRoute implements Route {
     Router.websocket('/ws', (WebSocketEvent event) {
       event.on('private_message', chatController.handlePrivateMessage);
       event.on('typing_status', chatController.handleTypingStatus);
+      event.on('fetch_chats', chatController.handleFetchChats);
+
       event.on('connect', (WebSocketClient client, dynamic payload) {
         print('Client: $client');
         client.emit('connected', {});
