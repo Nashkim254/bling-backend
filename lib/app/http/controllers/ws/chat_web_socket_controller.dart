@@ -3,40 +3,66 @@ import 'package:vania/vania.dart';
 
 class ChatWebSocketController extends Controller {
   Set<String> onlineUsers = {};
+  Map<String, String> clientIdToUserId = {};
+
   Function get onConnected => (WebSocketClient client) {
+        print('client.clientId = >');
         onlineUsers.add(client.clientId);
         client.broadcast('user_connected', {'userId': client.clientId});
       };
 
   Function get onDisconnected => (WebSocketClient client) {
         onlineUsers.remove(client.clientId);
+        clientIdToUserId.remove(client.clientId);
         client.broadcast('user_disconnected', {'userId': client.clientId});
       };
+  void connectedEventHandler(WebSocketClient client, dynamic data) {
+    print('Connected');
+    print(data);
+  }
+
+  void handleInit(WebSocketClient client, dynamic data) {
+    final String persistentUserId = data['userId'] ?? '';
+    if (persistentUserId.isNotEmpty) {
+      clientIdToUserId[client.clientId] = persistentUserId;
+      onlineUsers.add(persistentUserId);
+      print('User connected (via init): $persistentUserId (clientId: ${client.clientId})');
+    } else {
+      print('No userId provided in init for client: ${client.clientId}');
+    }
+  }
 
   // Handle private messages
   void handlePrivateMessage(WebSocketClient client, dynamic data) async {
     final String toUserId = data['to'];
-    final String userId = data['userId'];
+    print(data);
     final privateMessage = {
-      'from': userId,
+      'from': data['from'],
       'to': toUserId,
+      'is_read': 0,
+      'delivered': onlineUsers.contains(client.clientId),
       'content': data['content'],
       'timestamp': DateTime.now().toIso8601String(),
     };
+    print('onlineUsers');
+    print(onlineUsers);
     await Chats().query().insert(privateMessage);
+    print('to userId: $toUserId');
     client.to(toUserId, 'private_message', privateMessage);
   }
+
 //Handle fetch chats
-void handleFetchChats(WebSocketClient client, dynamic data) async {
+  void handleFetchChats(WebSocketClient client, dynamic data) async {
     final String userId = client.clientId; // Get the user making the request
     final List<Map<String, dynamic>> chats = await Chats()
         .query()
-        .where('from', userId)
+        .where('from', '=', data['userId'])
         .orWhere('to', userId)
         .orderBy('timestamp')
         .get();
     client.emit('chat_history', {'chats': chats});
-}
+  }
+
   // Handle room messages
   void handleRoomMessage(WebSocketClient client, dynamic data) {
     final String roomId = data['roomId'];

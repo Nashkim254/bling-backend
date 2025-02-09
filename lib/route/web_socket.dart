@@ -8,10 +8,12 @@ class WebSocketRoute implements Route {
       event.on('private_message', chatController.handlePrivateMessage);
       event.on('typing_status', chatController.handleTypingStatus);
       event.on('fetch_chats', chatController.handleFetchChats);
-
-      event.on('connect', (WebSocketClient client, dynamic payload) {
-        print('Client: $client');
-        client.emit('connected', {});
+      // event.on('connect', chatController.onConnected);
+      event.on('connect', chatController.onConnected);
+      event.on('user_connected', chatController.connectedEventHandler);
+      event.on('discconnect', chatController.onDisconnected);
+      event.on('init', (data) {
+    
       });
     });
   }

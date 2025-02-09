@@ -10,6 +10,8 @@ class CreateChatsTable extends Migration {
       char('to', length: 255);
       string('content');
       char('timestamp');
+      char('delivered');
+      integer('is_read');
       timeStamp('deleated_at', nullable: true);
       timeStamps();
     });
