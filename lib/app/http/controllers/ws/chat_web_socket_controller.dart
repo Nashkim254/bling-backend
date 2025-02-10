@@ -24,7 +24,7 @@ class ChatWebSocketController extends Controller {
   void handleInit(WebSocketClient client, dynamic data) {
     final String persistentUserId = data['userId'] ?? '';
     if (persistentUserId.isNotEmpty) {
-      clientIdToUserId[client.clientId] = persistentUserId;
+      clientIdToUserId[persistentUserId] = client.clientId;
       onlineUsers.add(persistentUserId);
       print('User connected (via init): $persistentUserId (clientId: ${client.clientId})');
     } else {
@@ -34,10 +34,12 @@ class ChatWebSocketController extends Controller {
 
   // Handle private messages
   void handlePrivateMessage(WebSocketClient client, dynamic data) async {
-    final String toUserId = data['to'];
+    final String to = data['to'];
+      final String toUserId = clientIdToUserId[to] ?? '';
+
     print(data);
     final privateMessage = {
-      'from': data['from'],
+      'from': client.clientId,
       'to': toUserId,
       'is_read': 0,
       'delivered': onlineUsers.contains(client.clientId),

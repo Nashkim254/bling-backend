@@ -12,9 +12,7 @@ class WebSocketRoute implements Route {
       event.on('connect', chatController.onConnected);
       event.on('user_connected', chatController.connectedEventHandler);
       event.on('discconnect', chatController.onDisconnected);
-      event.on('init', (data) {
-    
-      });
+      event.on('init', chatController.handleInit);
     });
   }
 }
