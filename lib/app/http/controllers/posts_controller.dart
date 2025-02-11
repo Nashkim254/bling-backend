@@ -17,7 +17,6 @@ class PostsController extends Controller {
         // Fetch posts with related comments, likes, and hashtags
         final posts = await Posts()
             .query()
-            .select()
             .join('comments', 'comments.user_id', '=', 'users.id')
             .join('likes', 'likes.user_id', '=', 'users.id')
             .join('hashtags', 'hashtags.user_id', '=', 'users.id')

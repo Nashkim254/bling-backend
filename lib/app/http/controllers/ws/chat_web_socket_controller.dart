@@ -35,12 +35,12 @@ class ChatWebSocketController extends Controller {
   // Handle private messages
   void handlePrivateMessage(WebSocketClient client, dynamic data) async {
     final String to = data['to'];
-      final String toUserId = clientIdToUserId[to] ?? '';
+    final String toUserId = clientIdToUserId[to] ?? '';
 
     print(data);
     final privateMessage = {
-      'from': client.clientId,
-      'to': toUserId,
+      'from': data['from'],
+      'to': to,
       'is_read': 0,
       'delivered': onlineUsers.contains(client.clientId),
       'content': data['content'],
@@ -55,13 +55,11 @@ class ChatWebSocketController extends Controller {
 
 //Handle fetch chats
   void handleFetchChats(WebSocketClient client, dynamic data) async {
-    final String userId = client.clientId; // Get the user making the request
-    final List<Map<String, dynamic>> chats = await Chats()
-        .query()
-        .where('from', '=', data['userId'])
-        .orWhere('to', userId)
-        .orderBy('timestamp')
-        .get();
+    final String userId = data['userId'];
+    var limit = data['limit'];
+    var page = data['page'];
+    final chats =
+        await Chats().query().where('from', '=', userId).orderBy('timestamp').paginate(limit, page);
     client.emit('chat_history', {'chats': chats});
   }
 
