@@ -5,16 +5,17 @@ class CreatePostsTable extends Migration {
   Future<void> up() async {
     super.up();
     await createTableNotExists('posts', () {
-      char('id');
+      char('id', unique: true);
       primary('id');
       char("user_id");
       char("type");
       char("caption");
-      integer('likes');
-      integer('comments');
-      integer('shares');
-      integer('reposts');
-      integer('is_active');
+      json('hashtags');
+      integer('likes', defaultValue: 0);
+      integer('comments', defaultValue: 0);
+      integer('shares', defaultValue: 0);
+      integer('reposts', defaultValue: 0);
+      integer('is_active', defaultValue: 1);
       string('image_url');
       timeStamp("deleated_at", nullable: true);
       timeStamps();

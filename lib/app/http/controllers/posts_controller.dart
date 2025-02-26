@@ -20,7 +20,7 @@ class PostsController extends Controller {
             .join('comments', 'comments.user_id', '=', 'users.id')
             .join('likes', 'likes.user_id', '=', 'users.id')
             .join('hashtags', 'hashtags.user_id', '=', 'users.id')
-            .where( 'user_id', '=',  userId)
+            .where('user_id', '=', userId)
             .groupBy('posts.id')
             .paginate(limit, page);
 
@@ -41,18 +41,19 @@ class PostsController extends Controller {
     }, HttpStatus.unprocessableEntity);
   }
 
-// Function to Generate Signed URL
-  Future<String> generateSignedUrl(String fileName) async {
-    return '';
-  }
-
   Future<Response> createPost(Request request) async {
+    print("request=========>");
+    print(request);
+
     Map<String, dynamic> body = request.body;
+
     body['created_at'] = DateTime.now();
     body['updated_at'] = DateTime.now();
+    print(body);
     try {
       await Posts().query().insert(body);
-      return Response.json({'message': 'Post created successfully'}, HttpStatus.ok);
+      return Response.json(
+          {'message': 'Post created successfully'}, HttpStatus.ok);
     } catch (e) {
       return Response.json({
         'message': 'Error creating post',

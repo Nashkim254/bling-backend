@@ -7,6 +7,7 @@ class CreateHashtagsTable extends Migration {
     await createTableNotExists('hashtags', () {
       char('id');
       primary('id');
+      json('hashtags');
       char("user_id");
       char("post_id");
       timeStamp("deleated_at", nullable: true);
