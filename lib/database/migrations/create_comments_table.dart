@@ -5,12 +5,13 @@ class CreateCommentsTable extends Migration {
   Future<void> up() async {
     super.up();
     await createTableNotExists('comments', () {
-      char('id');
+      uuid('id');
       primary('id');
-      char("user_id");
-      char("post_id");
+      uuid("user_id");
+      uuid("post_id");
       string("comment");
       timeStamp('expires_at', nullable: true);
+      timeStamp("deleted_at", nullable: true);
       timeStamps();
     });
   }

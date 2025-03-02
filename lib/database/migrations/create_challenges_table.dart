@@ -5,11 +5,11 @@ class CreateChallengesTable extends Migration {
   Future<void> up() async {
     super.up();
     await createTableNotExists('challenges', () {
-      char('id');
+      uuid('id');
       primary('id');
-      char("user_id");
-      char("post_id");
-      timeStamp("deleated_at", nullable: true);
+      uuid("user_id");
+      uuid("post_id");
+      timeStamp("deleted_at", nullable: true);
       timeStamps();
     });
   }

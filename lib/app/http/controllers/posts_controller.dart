@@ -43,7 +43,7 @@ class PostsController extends Controller {
 
   Future<Response> createPost(Request request) async {
     print("request=========>");
-    print(request);
+    print(request.body);
 
     Map<String, dynamic> body = request.body;
 

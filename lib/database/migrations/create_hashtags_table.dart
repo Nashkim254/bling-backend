@@ -5,11 +5,11 @@ class CreateHashtagsTable extends Migration {
   Future<void> up() async {
     super.up();
     await createTableNotExists('hashtags', () {
-      char('id');
+      uuid('id');
       primary('id');
       json('hashtags');
-      char("user_id");
-      char("post_id");
+      uuid("user_id");
+      uuid("post_id");
       timeStamp("deleated_at", nullable: true);
       timeStamps();
     });

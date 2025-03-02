@@ -5,10 +5,10 @@ class CreateLikesTable extends Migration {
   Future<void> up() async {
     super.up();
     await createTableNotExists('likes', () {
-      char('id');
+      uuid('id');
       primary('id');
-      char("user_id");
-      char("post_id");
+      uuid("user_id");
+      uuid("post_id");
       timeStamp('expires_at', nullable: true);
       timeStamps();
     });
