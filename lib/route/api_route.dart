@@ -16,14 +16,14 @@ class ApiRoute implements Route {
     Router.post('/register', authController.register);
     Router.post('/login', authController.login);
 
-    Router.group(() {
-      Router.get('/get/posts', postsController.getPosts);
-      Router.get('/get/reposts', repostsController.getReposts);
-      Router.post('/create/post', postsController.createPost);
-      Router.post('/create/like', likesController.createLike);
-      Router.post('/create/challenge', challengesController.createChallenge);
-      Router.post('/create/hashtag', hashtagsController.createHashtag);
-      Router.post('/create/comment', commentsController.createCommennt);
-    }, middleware: [AuthenticateMiddleware()]);
+    // Router.group(() {
+    Router.get('/get/posts', postsController.getPosts);
+    Router.get('/get/reposts', repostsController.getReposts);
+    Router.post('/create/post', postsController.createPost);
+    Router.post('/create/like', likesController.createLike);
+    Router.post('/create/challenge', challengesController.createChallenge);
+    Router.post('/create/hashtag', hashtagsController.createHashtag);
+    Router.post('/create/comment', commentsController.createCommennt);
+    // }, middleware: [AuthenticateMiddleware()]);
   }
 }

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:uuid/uuid_value.dart';
 import 'package:vania/vania.dart';
 
 import 'package:bling/app/models/posts.dart';
@@ -42,22 +43,21 @@ class PostsController extends Controller {
   }
 
   Future<Response> createPost(Request request) async {
-    print("request=========>");
-    print(request.body);
-
-    Map<String, dynamic> body = request.body;
-
-    body['created_at'] = DateTime.now();
-    body['updated_at'] = DateTime.now();
-    print(body);
     try {
+      // 🔹 Decode JSON body
+      Map<String, dynamic> body = request.body;
+      body['created_at'] = DateTime.now().toIso8601String();
+      body['updated_at'] = DateTime.now().toIso8601String();
+
+      print("Processed Body: $body");
+
       await Posts().query().insert(body);
       return Response.json(
           {'message': 'Post created successfully'}, HttpStatus.ok);
     } catch (e) {
-      return Response.json({
-        'message': 'Error creating post',
-      }, 422);
+      print("Error: $e");
+      return Response.json(
+          {'message': 'Error creating post'}, HttpStatus.unprocessableEntity);
     }
   }
 }

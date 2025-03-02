@@ -8,7 +8,7 @@ class CreatePostsTable extends Migration {
       uuid('id', unique: true);
       primary('id');
       uuid("user_id");
-      char("type");
+      char("post_type");
       string('caption', length: 500);
       json('hashtags');
       integer('likes', defaultValue: 0);
