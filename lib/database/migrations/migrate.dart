@@ -9,13 +9,21 @@ import 'create_reposts_table.dart';
 import 'create_likes_table.dart';
 import 'create_hashtags_table.dart';
 import 'create_challenges_table.dart';
+import 'create_challenge_entries_table.dart';
 import 'create_personal_access_tokens_table.dart';
 import 'create_chats_table.dart';
+import 'create_wallets_table.dart';
+import 'create_bling_packages_table.dart';
+import 'create_bling_transactions_table.dart';
+import 'create_follows_table.dart';
+import 'create_notifications_table.dart';
+import 'create_ads_table.dart';
 
 void main(List<String> args) async {
   await MigrationConnection().setup();
   if (args.isNotEmpty && args.first.toLowerCase() == "migrate:fresh") {
     await Migrate().dropTables();
+    await Migrate().registry();
   } else {
     await Migrate().registry();
   }
@@ -34,13 +42,27 @@ class Migrate {
     await CreateLikesTable().up();
     await CreateHashtagsTable().up();
     await CreateChallengesTable().up();
+    await CreateChallengeEntriesTable().up();
     await CreatePersonalAccessTokensTable().up();
     await CreateChatsTable().up();
+    await CreateWalletsTable().up();
+    await CreateBlingPackagesTable().up();
+    await CreateBlingTransactionsTable().up();
+    await CreateFollowsTable().up();
+    await CreateNotificationsTable().up();
+    await CreateAdsTable().up();
   }
 
   dropTables() async {
+    await CreateAdsTable().down();
+    await CreateNotificationsTable().down();
+    await CreateFollowsTable().down();
+    await CreateBlingTransactionsTable().down();
+    await CreateBlingPackagesTable().down();
+    await CreateWalletsTable().down();
     await CreateChatsTable().down();
     await CreatePersonalAccessTokensTable().down();
+    await CreateChallengeEntriesTable().down();
     await CreateChallengesTable().down();
     await CreateHashtagsTable().down();
     await CreateLikesTable().down();

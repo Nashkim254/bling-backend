@@ -1,126 +1,217 @@
-import 'package:bling/app/models/chats.dart';
 import 'package:vania/vania.dart';
+import 'package:uuid/uuid.dart';
 
 class ChatWebSocketController extends Controller {
-  Set<String> onlineUsers = {};
-  Map<String, String> clientIdToUserId = {};
+  // Track online users: userId -> clientId
+  final Map<String, String> _userToClient = {};
+  // Track client to user: clientId -> userId
+  final Map<String, String> _clientToUser = {};
 
   Function get onConnected => (WebSocketClient client) {
-        print('client.clientId = >');
-        onlineUsers.add(client.clientId);
-        client.broadcast('user_connected', {'userId': client.clientId});
+        print('[WS] Client connected: ${client.clientId}');
       };
 
   Function get onDisconnected => (WebSocketClient client) {
-        onlineUsers.remove(client.clientId);
-        clientIdToUserId.remove(client.clientId);
-        client.broadcast('user_disconnected', {'userId': client.clientId});
+        final userId = _clientToUser[client.clientId];
+        if (userId != null) {
+          _userToClient.remove(userId);
+          _clientToUser.remove(client.clientId);
+          client.broadcast('user_offline', {'userId': userId});
+          print('[WS] User disconnected: $userId');
+        }
       };
+
   void connectedEventHandler(WebSocketClient client, dynamic data) {
-    print('Connected');
-    print(data);
+    print('[WS] User event connected: $data');
   }
 
+  /// Initialize session - called by client after connecting
+  /// Data: { userId, token? }
   void handleInit(WebSocketClient client, dynamic data) {
-    final String persistentUserId = data['userId'] ?? '';
-    if (persistentUserId.isNotEmpty) {
-      clientIdToUserId[persistentUserId] = client.clientId;
-      onlineUsers.add(persistentUserId);
-      print('User connected (via init): $persistentUserId (clientId: ${client.clientId})');
-    } else {
-      print('No userId provided in init for client: ${client.clientId}');
-    }
+    final userId = data['userId']?.toString() ?? '';
+    if (userId.isEmpty) return;
+
+    _userToClient[userId] = client.clientId;
+    _clientToUser[client.clientId] = userId;
+
+    print('[WS] User online: $userId (clientId: ${client.clientId})');
+
+    // Emit online status to all
+    client.broadcast('user_online', {'userId': userId});
+
+    // Send current online users list to this client
+    client.emit('online_users', {'users': _userToClient.keys.toList()});
   }
 
-  // Handle private messages
+  /// Handle private 1-on-1 message
+  /// Data: { from, to, content }
   void handlePrivateMessage(WebSocketClient client, dynamic data) async {
-    final String to = data['to'];
-    final String toUserId = clientIdToUserId[to] ?? '';
+    final from = data['from']?.toString() ?? '';
+    final to = data['to']?.toString() ?? '';
+    final content = data['content']?.toString() ?? '';
 
-    print(data);
-    final privateMessage = {
-      'from': data['from'],
-      'to': to,
+    if (from.isEmpty || to.isEmpty || content.isEmpty) return;
+
+    final now = DateTime.now().toIso8601String();
+    final msgId = const Uuid().v4();
+    final toClientId = _userToClient[to] ?? '';
+    final isDelivered = toClientId.isNotEmpty;
+
+    final message = {
+      'id': msgId,
+      'from_user_id': from,
+      'to_user_id': to,
+      'content': content,
       'is_read': 0,
-      'delivered': onlineUsers.contains(client.clientId),
-      'content': data['content'],
-      'timestamp': DateTime.now().toIso8601String(),
+      'delivered': isDelivered ? 1 : 0,
+      'created_at': now,
     };
-    print('onlineUsers');
-    print(onlineUsers);
-    await Chats().query().insert(privateMessage);
-    print('to userId: $toUserId');
-    client.to(toUserId, 'private_message', privateMessage);
+
+    // Persist to database
+    try {
+      await connection!.statement(
+        'INSERT INTO chats (id, from_user_id, to_user_id, content, is_read, delivered, created_at, updated_at) VALUES (\$1,\$2,\$3,\$4,0,\$5,\$6,\$7)',
+        [msgId, from, to, content, isDelivered ? 1 : 0, now, now],
+      );
+    } catch (e) {
+      print('[WS] DB error saving message: $e');
+    }
+
+    // Send to recipient if online
+    if (isDelivered) {
+      client.to(toClientId, 'private_message', message);
+    }
+
+    // Echo back to sender with the saved message id
+    client.emit('message_sent', message);
   }
 
-//Handle fetch chats
-  void handleFetchChats(WebSocketClient client, dynamic data) async {
-    final String userId = data['userId'];
-    var limit = data['limit'];
-    var page = data['page'];
-    final chats =
-        await Chats().query().where('from', '=', userId).orderBy('timestamp').paginate(limit, page);
-    client.emit('chat_history', {'chats': chats});
-  }
-
-  // Handle room messages
-  void handleRoomMessage(WebSocketClient client, dynamic data) {
-    final String roomId = data['roomId'];
-    client.toRoom('room_message', roomId, {
-      'from': client.clientId,
-      'content': data['content'],
-      'roomId': roomId,
-      'timestamp': DateTime.now().toIso8601String(),
-    });
-  }
-
-  // Join room
-  void handleJoinRoom(WebSocketClient client, dynamic data) {
-    final String roomId = data['roomId'];
-    // client.joinRoom(roomId);
-    client.toRoom('user_joined', roomId, {
-      'userId': client.clientId,
-      'roomId': roomId,
-      'timestamp': DateTime.now().toIso8601String(),
-    });
-  }
-
-  // Leave room
-  void handleLeaveRoom(WebSocketClient client, dynamic data) {
-    final String roomId = data['roomId'];
-    // client.leftRoom(roomId);
-    client.toRoom('user_left', roomId, {
-      'userId': client.clientId,
-      'roomId': roomId,
-      'timestamp': DateTime.now().toIso8601String(),
-    });
-  }
-
-  // Typing status
+  /// Handle typing status
+  /// Data: { from, to, isTyping }
   void handleTypingStatus(WebSocketClient client, dynamic data) {
-    if (data['roomId'] != null) {
-      // Room typing status
-      client.toRoom('typing_status', data['roomId'], {
-        'userId': client.clientId,
-        'isTyping': data['isTyping'],
-        'roomId': data['roomId'],
+    final to = data['to']?.toString() ?? '';
+    final toClientId = _userToClient[to] ?? '';
+    if (toClientId.isEmpty) return;
+
+    client.to(toClientId, 'typing_status', {
+      'userId': data['from'],
+      'isTyping': data['isTyping'],
+    });
+  }
+
+  /// Fetch chat history with a user
+  /// Data: { userId, partnerId, page?, limit? }
+  void handleFetchChats(WebSocketClient client, dynamic data) async {
+    final userId = data['userId']?.toString() ?? '';
+    final partnerId = data['partnerId']?.toString() ?? '';
+    final page = int.tryParse(data['page']?.toString() ?? '1') ?? 1;
+    final limit = int.tryParse(data['limit']?.toString() ?? '50') ?? 50;
+
+    if (userId.isEmpty) return;
+
+    try {
+      List<Map<String, dynamic>> messages;
+      if (partnerId.isNotEmpty) {
+        messages = await connection!.select(
+          '''SELECT id, from_user_id, to_user_id, content, is_read, delivered, created_at
+             FROM chats
+             WHERE (from_user_id = \$1 AND to_user_id = \$2)
+                OR (from_user_id = \$2 AND to_user_id = \$1)
+             ORDER BY created_at DESC
+             LIMIT \$3 OFFSET \$4''',
+          [userId, partnerId, limit, (page - 1) * limit],
+        );
+      } else {
+        messages = await connection!.select(
+          '''SELECT id, from_user_id, to_user_id, content, is_read, delivered, created_at
+             FROM chats
+             WHERE from_user_id = \$1 OR to_user_id = \$1
+             ORDER BY created_at DESC
+             LIMIT \$2 OFFSET \$3''',
+          [userId, limit, (page - 1) * limit],
+        );
+      }
+
+      client.emit('chat_history', {
+        'messages': messages
+            .map((m) => {
+                  'id': m['id'],
+                  'from_user_id': m['from_user_id'],
+                  'to_user_id': m['to_user_id'],
+                  'content': m['content'],
+                  'is_read': m['is_read'],
+                  'delivered': m['delivered'],
+                  'created_at': m['created_at'].toString(),
+                })
+            .toList()
+            .reversed
+            .toList(),
       });
-    } else {
-      // Private typing status
-      client.to(data['to'], 'typing_status', {
-        'userId': client.clientId,
-        'isTyping': data['isTyping'],
-      });
+    } catch (e) {
+      print('[WS] Error fetching chats: $e');
+      client.emit('chat_history', {'messages': []});
     }
   }
 
-  // Get room members
-  void handleGetRoomMembers(WebSocketClient client, dynamic data) {
-    final String roomId = data['roomId'];
-    final members = client.getRoomMembers(roomId: roomId);
-    client.emit('room_members', {
+  /// Mark messages as read
+  /// Data: { userId, fromUserId }
+  void handleMarkRead(WebSocketClient client, dynamic data) async {
+    final userId = data['userId']?.toString() ?? '';
+    final fromUserId = data['fromUserId']?.toString() ?? '';
+    if (userId.isEmpty || fromUserId.isEmpty) return;
+
+    try {
+      await connection!.statement(
+        'UPDATE chats SET is_read = 1 WHERE to_user_id = \$1 AND from_user_id = \$2 AND is_read = 0',
+        [userId, fromUserId],
+      );
+
+      // Notify sender that messages were read
+      final senderClientId = _userToClient[fromUserId] ?? '';
+      if (senderClientId.isNotEmpty) {
+        client.to(senderClientId, 'messages_read', {
+          'by_user_id': userId,
+          'from_user_id': fromUserId,
+        });
+      }
+    } catch (e) {
+      print('[WS] Error marking read: $e');
+    }
+  }
+
+  /// Handle room message (group chat)
+  void handleRoomMessage(WebSocketClient client, dynamic data) {
+    final roomId = data['roomId']?.toString() ?? '';
+    if (roomId.isEmpty) return;
+
+    final userId = _clientToUser[client.clientId] ?? client.clientId;
+    client.toRoom('room_message', roomId, {
+      'from': userId,
+      'content': data['content'],
       'roomId': roomId,
-      'members': members,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+  }
+
+  void handleJoinRoom(WebSocketClient client, dynamic data) {
+    final roomId = data['roomId']?.toString() ?? '';
+    if (roomId.isEmpty) return;
+    final userId = _clientToUser[client.clientId] ?? client.clientId;
+    client.toRoom('user_joined', roomId, {
+      'userId': userId,
+      'roomId': roomId,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+  }
+
+  void handleLeaveRoom(WebSocketClient client, dynamic data) {
+    final roomId = data['roomId']?.toString() ?? '';
+    if (roomId.isEmpty) return;
+    final userId = _clientToUser[client.clientId] ?? client.clientId;
+    client.toRoom('user_left', roomId, {
+      'userId': userId,
+      'roomId': roomId,
+      'timestamp': DateTime.now().toIso8601String(),
     });
   }
 }

@@ -5,14 +5,14 @@ class CreateChatsTable extends Migration {
   Future<void> up() async {
     super.up();
     await createTableNotExists('chats', () {
-      id();
-      char('from', length: 255);
-      char('to', length: 255);
+      uuid('id');
+      primary('id');
+      char('from_user_id', length: 255);
+      char('to_user_id', length: 255);
       string('content');
-      char('timestamp');
-      char('delivered');
-      integer('is_read');
-      timeStamp('deleated_at', nullable: true);
+      integer('is_read', defaultValue: 0);
+      integer('delivered', defaultValue: 0);
+      timeStamp('deleted_at', nullable: true);
       timeStamps();
     });
   }
