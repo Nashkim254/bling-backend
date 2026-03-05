@@ -28,6 +28,10 @@ import 'create_conversations_table.dart';
 import 'create_conversation_members_table.dart';
 import 'create_message_reactions_table.dart';
 import 'alter_chats_add_chat_fields.dart';
+import 'alter_comments_add_parent_id.dart';
+import 'create_blocks_table.dart';
+import 'create_reports_table.dart';
+import 'alter_users_add_status.dart';
 
 void main(List<String> args) async {
   await MigrationConnection().setup();
@@ -71,6 +75,10 @@ class Migrate {
     await CreateConversationMembersTable().up();
     await CreateMessageReactionsTable().up();
     await AlterChatsAddChatFields().up();
+    await AlterCommentsAddParentId().up();
+    await CreateBlocksTable().up();
+    await CreateReportsTable().up();
+    await AlterUsersAddStatus().up();
   }
 
   dropTables() async {

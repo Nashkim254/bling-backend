@@ -1,5 +1,7 @@
+import 'package:bling/app/http/controllers/account_controller.dart';
 import 'package:bling/app/http/controllers/ad_controller.dart';
 import 'package:bling/app/http/controllers/auth_controller.dart';
+import 'package:bling/app/http/controllers/block_controller.dart';
 import 'package:bling/app/http/controllers/otp_controller.dart';
 import 'package:bling/app/http/controllers/challenges_controller.dart';
 import 'package:bling/app/http/controllers/chat_controller.dart';
@@ -8,6 +10,7 @@ import 'package:bling/app/http/controllers/leaderboard_controller.dart';
 import 'package:bling/app/http/controllers/notification_controller.dart';
 import 'package:bling/app/http/controllers/posts_controller.dart';
 import 'package:bling/app/http/controllers/purchase_controller.dart';
+import 'package:bling/app/http/controllers/report_controller.dart';
 import 'package:bling/app/http/controllers/wallet_controller.dart';
 import 'package:bling/app/http/middleware/authenticate.dart';
 import 'package:vania/vania.dart';
@@ -32,6 +35,7 @@ class ApiRoute implements Route {
     Router.get('/challenges', challengesController.getChallenges);
     Router.get('/ads', adController.getAds);
     Router.get('/bling/packages', walletController.getPackages);
+    Router.get('/posts/hashtag/:tag', postsController.getPostsByHashtag);
 
     // ─── Authenticated Routes ─────────────────────────────────────────
     Router.group(() {
@@ -90,6 +94,19 @@ class ApiRoute implements Route {
 
       // Leaderboard (auth version includes my_rank)
       Router.get('/leaderboard/me', leaderboardController.getLeaderboard);
+
+      // Block
+      Router.post('/block/:userId', blockController.blockUser);
+      Router.delete('/block/:userId', blockController.unblockUser);
+      Router.get('/blocks', blockController.listBlocked);
+
+      // Report
+      Router.post('/report/user/:userId', reportController.reportUser);
+      Router.post('/report/post/:postId', reportController.reportPost);
+
+      // Account management
+      Router.delete('/account', accountController.deleteAccount);
+      Router.post('/account/disable', accountController.disableAccount);
 
       // Ads — campaign management & tracking
       Router.post('/ads', adController.createAd);

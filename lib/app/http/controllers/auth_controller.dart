@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:bling/app/models/block_model.dart';
 import 'package:bling/app/models/follow.dart';
 import 'package:bling/app/models/posts.dart';
 import 'package:bling/app/models/user.dart';
@@ -100,6 +101,20 @@ class AuthController extends Controller {
 
     if (!Hash().verify(password, user['password'])) {
       return Response.json({'message': 'Invalid credentials'}, 401);
+    }
+
+    // Reject permanently deleted accounts
+    final status = user['status']?.toString() ?? 'active';
+    if (status == 'deleted') {
+      return Response.json({'message': 'This account has been deleted'}, 403);
+    }
+
+    // Re-enable disabled account on successful login
+    if (status == 'disabled') {
+      await User().query().where('id', '=', user['id']).update({
+        'status': 'active',
+        'updated_at': DateTime.now().toIso8601String(),
+      });
     }
 
     String accessToken = '';
@@ -225,13 +240,19 @@ class AuthController extends Controller {
     final userId = request.params()['id'] as String? ?? '';
     final authUserId = request.input('auth_user_id') as String? ?? '';
 
-    final user = await User().query().where('id', '=', userId).first();
+    final user = await User()
+        .query()
+        .where('id', '=', userId)
+        .where('status', '!=', 'deleted')
+        .first();
     if (user == null) {
       return Response.json({'message': 'User not found'}, 404);
     }
 
     // Check if auth user follows this user
     bool isFollowing = false;
+    bool isBlocked = false;
+    bool isBlockedBy = false;
     if (authUserId.isNotEmpty) {
       final follow = await Follow()
           .query()
@@ -239,6 +260,20 @@ class AuthController extends Controller {
           .where('following_id', '=', userId)
           .first();
       isFollowing = follow != null;
+
+      final blocked = await BlockModel()
+          .query()
+          .where('user_id', '=', authUserId)
+          .where('blocked_user_id', '=', userId)
+          .first();
+      isBlocked = blocked != null;
+
+      final blockedBy = await BlockModel()
+          .query()
+          .where('user_id', '=', userId)
+          .where('blocked_user_id', '=', authUserId)
+          .first();
+      isBlockedBy = blockedBy != null;
     }
 
     final followersCount =
@@ -268,6 +303,8 @@ class AuthController extends Controller {
         'bling_score': userScore,
         'is_verified': user['is_verified'],
         'is_following': isFollowing,
+        'is_blocked': isBlocked,
+        'is_blocked_by': isBlockedBy,
         'followers_count': followersCount,
         'following_count': followingCount,
         'posts_count': postsCount,
@@ -285,8 +322,29 @@ class AuthController extends Controller {
         int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
     final authUserId = request.input('auth_user_id') as String? ?? '';
 
-    var query = User().query().select(
-        ['id', 'name', 'username', 'avatar', 'bling_score', 'is_verified']);
+    // Fetch IDs that auth user has blocked or is blocked by
+    List<String> excludedIds = [];
+    if (authUserId.isNotEmpty) {
+      final blockedByMe = await BlockModel()
+          .query()
+          .select(['blocked_user_id'])
+          .where('user_id', '=', authUserId)
+          .get();
+      final blockedMe = await BlockModel()
+          .query()
+          .select(['user_id'])
+          .where('blocked_user_id', '=', authUserId)
+          .get();
+      excludedIds = [
+        ...(blockedByMe as List).map((r) => r['blocked_user_id'].toString()),
+        ...(blockedMe as List).map((r) => r['user_id'].toString()),
+      ];
+    }
+
+    var query = User()
+        .query()
+        .select(['id', 'name', 'username', 'avatar', 'bling_score', 'is_verified'])
+        .where('status', '=', 'active');
 
     if (search.isNotEmpty) {
       query = query.whereRaw(
@@ -295,6 +353,10 @@ class AuthController extends Controller {
 
     if (authUserId.isNotEmpty) {
       query = query.where('id', '!=', authUserId);
+    }
+
+    for (final id in excludedIds) {
+      query = query.where('id', '!=', id);
     }
 
     final result =

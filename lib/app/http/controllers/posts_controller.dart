@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:bling/app/models/block_model.dart';
 import 'package:bling/app/models/likes_model.dart';
 import 'package:bling/app/models/notification_model.dart';
 import 'package:bling/app/models/posts.dart';
@@ -17,7 +19,26 @@ class PostsController extends Controller {
         int.tryParse(request.input('limit')?.toString() ?? '10') ?? 10;
 
     try {
-      final posts = await Posts()
+      // Build block exclusion list for auth user
+      final List<String> blockedIds = [];
+      if (authUserId.isNotEmpty) {
+        final blockedByMe = await BlockModel()
+            .query()
+            .select(['blocked_user_id'])
+            .where('user_id', '=', authUserId)
+            .get();
+        final blockedMe = await BlockModel()
+            .query()
+            .select(['user_id'])
+            .where('blocked_user_id', '=', authUserId)
+            .get();
+        blockedIds.addAll(
+            (blockedByMe as List).map((r) => r['blocked_user_id'].toString()));
+        blockedIds.addAll(
+            (blockedMe as List).map((r) => r['user_id'].toString()));
+      }
+
+      var postsQuery = Posts()
           .query()
           .select([
             'posts.id',
@@ -35,12 +56,17 @@ class PostsController extends Controller {
           .selectRaw(
               'COALESCE(COUNT(DISTINCT comments.id), 0) AS comment_count, '
               'COALESCE(COUNT(DISTINCT likes.id), 0) AS like_count, '
-              'MAX(posts.hashtags::TEXT) AS extracted_hashtags')
+              'posts.hashtags::TEXT AS extracted_hashtags')
           .leftJoin('users', 'users.id', '=', 'posts.user_id')
           .leftJoin('comments', 'comments.post_id', '=', 'posts.id')
           .leftJoin('likes', 'likes.post_id', '=', 'posts.id')
-          .where('posts.is_active', '=', 1)
-          .groupBy([
+          .where('posts.is_active', '=', 1);
+
+      for (final id in blockedIds) {
+        postsQuery = postsQuery.where('posts.user_id', '!=', id);
+      }
+
+      final posts = await postsQuery.groupBy([
             'posts.id',
             'posts.user_id',
             'posts.caption',
@@ -48,6 +74,7 @@ class PostsController extends Controller {
             'posts.image_url',
             'posts.is_active',
             'posts.created_at',
+            'posts.hashtags',
             'users.name',
             'users.username',
             'users.avatar',
@@ -132,7 +159,7 @@ class PostsController extends Controller {
           .selectRaw(
               'COALESCE(COUNT(DISTINCT comments.id), 0) AS comment_count, '
               'COALESCE(COUNT(DISTINCT likes.id), 0) AS like_count, '
-              'MAX(posts.hashtags::TEXT) AS extracted_hashtags')
+              'posts.hashtags::TEXT AS extracted_hashtags')
           .leftJoin('comments', 'comments.post_id', '=', 'posts.id')
           .leftJoin('likes', 'likes.post_id', '=', 'posts.id')
           .where('posts.user_id', '=', userId)
@@ -145,6 +172,7 @@ class PostsController extends Controller {
             'posts.image_url',
             'posts.is_active',
             'posts.created_at',
+            'posts.hashtags',
           ])
           .orderBy('posts.created_at', 'DESC')
           .paginate(limit, page);
@@ -353,9 +381,11 @@ class PostsController extends Controller {
     final now = DateTime.now().toIso8601String();
     final commentId = const Uuid().v4();
 
+    final parentId = request.body['parent_id']?.toString();
+
     await connection!.statement(
-      'INSERT INTO comments (id, user_id, post_id, content, created_at, updated_at) VALUES (\$1,\$2,\$3,\$4,\$5,\$6)',
-      [commentId, authUserId, postId, request.body['content'], now, now],
+      'INSERT INTO comments (id, user_id, post_id, parent_id, content, created_at, updated_at) VALUES (\$1,\$2,\$3,\$4,\$5,\$6,\$7)',
+      [commentId, authUserId, postId, parentId, request.body['content'], now, now],
     );
 
     // Notify post owner
@@ -384,38 +414,183 @@ class PostsController extends Controller {
   /// GET /api/posts/:id/comments
   Future<Response> getComments(Request request) async {
     final postId = request.params()['id'] as String? ?? '';
+    final authUserId = request.input('auth_user_id') as String? ?? '';
     final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
-    final limit =
-        int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
+    final limit = int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
+
+    // Build excluded user IDs (people who blocked auth user or are blocked)
+    final List<String> blockedIds = [];
+    if (authUserId.isNotEmpty) {
+      final blockedByMe = await BlockModel()
+          .query()
+          .select(['blocked_user_id'])
+          .where('user_id', '=', authUserId)
+          .get();
+      final blockedMe = await BlockModel()
+          .query()
+          .select(['user_id'])
+          .where('blocked_user_id', '=', authUserId)
+          .get();
+      blockedIds.addAll(
+          (blockedByMe as List).map((r) => r['blocked_user_id'].toString()));
+      blockedIds.addAll(
+          (blockedMe as List).map((r) => r['user_id'].toString()));
+    }
+
+    // Build exclusion clause
+    final exclusionClause = blockedIds.isEmpty
+        ? ''
+        : 'AND c.user_id NOT IN (${blockedIds.map((id) => "'$id'").join(',')})';
 
     try {
-      final comments = await connection!.select(
-        '''SELECT c.id, c.content, c.created_at,
-           u.id as user_id, u.name as user_name, u.username, u.avatar
+      // Fetch top-level comments (no parent)
+      final topLevel = await connection!.select(
+        '''SELECT c.id, c.content, c.parent_id, c.created_at,
+               u.id as user_id, u.name as user_name, u.username, u.avatar as user_avatar,
+               (SELECT COUNT(*) FROM comments r WHERE r.parent_id = c.id::text) as reply_count
            FROM comments c
            JOIN users u ON u.id = c.user_id
-           WHERE c.post_id = \$1
+           WHERE c.post_id = \$1 AND (c.parent_id IS NULL OR c.parent_id = '')
+             $exclusionClause
            ORDER BY c.created_at ASC
            LIMIT \$2 OFFSET \$3''',
         [postId, limit, (page - 1) * limit],
       );
 
+      if (topLevel.isEmpty) {
+        return Response.json({'comments': []}, HttpStatus.ok);
+      }
+
+      // Batch fetch replies for all top-level comments
+      final parentIds = topLevel.map((c) => "'${c['id']}'").join(',');
+      final replies = await connection!.select(
+        '''SELECT c.id, c.content, c.parent_id, c.created_at,
+               u.id as user_id, u.name as user_name, u.username, u.avatar as user_avatar
+           FROM comments c
+           JOIN users u ON u.id = c.user_id
+           WHERE c.parent_id IN ($parentIds)
+             $exclusionClause
+           ORDER BY c.created_at ASC''',
+        [],
+      );
+
+      // Group replies by parent_id
+      final replyMap = <String, List<Map<String, dynamic>>>{};
+      for (final r in replies) {
+        final pid = r['parent_id'].toString();
+        replyMap.putIfAbsent(pid, () => []).add(r);
+      }
+
+      final result = topLevel.map((c) {
+        final cid = c['id'].toString();
+        return {
+          'id': cid,
+          'content': c['content'],
+          'parent_id': null,
+          'user_id': c['user_id'],
+          'user_name': c['user_name'],
+          'username': c['username'],
+          'user_avatar': c['user_avatar'],
+          'created_at': c['created_at'].toString(),
+          'reply_count': c['reply_count'] ?? 0,
+          'replies': (replyMap[cid] ?? []).map((r) => {
+            'id': r['id'],
+            'content': r['content'],
+            'parent_id': r['parent_id'],
+            'user_id': r['user_id'],
+            'user_name': r['user_name'],
+            'username': r['username'],
+            'user_avatar': r['user_avatar'],
+            'created_at': r['created_at'].toString(),
+            'reply_count': 0,
+            'replies': [],
+          }).toList(),
+        };
+      }).toList();
+
+      return Response.json({'comments': result}, HttpStatus.ok);
+    } catch (e) {
+      return Response.json({'message': 'Error fetching comments', 'error': e.toString()}, 500);
+    }
+  }
+
+  /// GET /api/posts/hashtag/:tag  (public)
+  Future<Response> getPostsByHashtag(Request request) async {
+    final rawTag = request.params()['tag'] as String? ?? '';
+    final authUserId = request.input('auth_user_id') as String? ?? '';
+    final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
+    final limit =
+        int.tryParse(request.input('limit')?.toString() ?? '10') ?? 10;
+
+    if (rawTag.isEmpty) {
+      return Response.json({'message': 'tag is required'}, 422);
+    }
+
+    // Normalize tag: ensure it has a leading #
+    final tag = rawTag.startsWith('#') ? rawTag : '#$rawTag';
+
+    try {
+      final offset = (page - 1) * limit;
+      // Use JSONB containment to find posts whose hashtags array includes the tag
+      final rows = await connection!.select(
+        '''SELECT p.id, p.user_id, p.caption, p.post_type, p.image_url,
+                  p.is_active, p.created_at, p.hashtags::TEXT AS extracted_hashtags,
+                  u.name AS user_name, u.username AS user_username,
+                  u.avatar AS user_avatar, u.is_verified AS user_is_verified,
+                  COALESCE((SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id::text), 0) AS comment_count,
+                  COALESCE((SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id::text), 0) AS like_count
+           FROM posts p
+           JOIN users u ON u.id = p.user_id
+           WHERE p.is_active = 1
+             AND p.hashtags::jsonb @> \$1::jsonb
+           ORDER BY p.created_at DESC
+           LIMIT \$2 OFFSET \$3''',
+        [jsonEncode([tag]), limit, offset],
+      );
+
+      List<String> likedPostIds = [];
+      if (authUserId.isNotEmpty) {
+        final liked = await LikesModel()
+            .query()
+            .where('user_id', '=', authUserId)
+            .get();
+        likedPostIds = (liked as List)
+            .map((l) => l['post_id']?.toString() ?? '')
+            .toList();
+      }
+
+      final data = rows.map((p) {
+        return {
+          'id': p['id'],
+          'user_id': p['user_id'],
+          'user_name': p['user_name'],
+          'user_username': p['user_username'],
+          'user_avatar': p['user_avatar'],
+          'user_is_verified': p['user_is_verified'],
+          'caption': p['caption'],
+          'post_type': p['post_type']?.trim(),
+          'image_url': p['image_url'],
+          'is_active': p['is_active'],
+          'created_at': p['created_at'].toString(),
+          'comment_count': p['comment_count'] ?? 0,
+          'like_count': p['like_count'] ?? 0,
+          'extracted_hashtags': p['extracted_hashtags'] ?? '[]',
+          'is_liked': likedPostIds.contains(p['id']?.toString()),
+          'item_type': 'post',
+        };
+      }).toList();
+
       return Response.json({
-        'comments': comments
-            .map((c) => {
-                  'id': c['id'],
-                  'content': c['content'],
-                  'user_id': c['user_id'],
-                  'user_name': c['user_name'],
-                  'username': c['username'],
-                  'user_avatar': c['avatar'],
-                  'created_at': c['created_at'].toString(),
-                })
-            .toList(),
-      }, HttpStatus.ok);
+        'posts': {
+          'data': data,
+          'page': page,
+          'per_page': limit,
+          'has_more': data.length >= limit,
+        }
+      }, 200);
     } catch (e) {
       return Response.json({
-        'message': 'Error fetching comments',
+        'message': 'Error fetching posts by hashtag',
         'error': e.toString(),
       }, 500);
     }

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 
+import 'package:bling/app/models/block_model.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
@@ -97,6 +98,24 @@ class ChatController extends Controller {
 
     if (memberIds.isEmpty) {
       return Response.json({'message': 'member_ids required'}, 422);
+    }
+
+    // For DM: check mutual block before creating
+    if (type == 'dm' && memberIds.length == 1) {
+      final partnerId = memberIds.first;
+      final blocked = await BlockModel()
+          .query()
+          .where('user_id', '=', me)
+          .where('blocked_user_id', '=', partnerId)
+          .first();
+      final blockedBy = await BlockModel()
+          .query()
+          .where('user_id', '=', partnerId)
+          .where('blocked_user_id', '=', me)
+          .first();
+      if (blocked != null || blockedBy != null) {
+        return Response.json({'message': 'Cannot message this user'}, 403);
+      }
     }
 
     final allMembers = ({me, ...memberIds}).toList();
