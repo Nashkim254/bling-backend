@@ -5,17 +5,17 @@ class WebSocketRoute implements Route {
   @override
   void register() {
     Router.websocket('/ws', (WebSocketEvent event) {
-      event.on('connect', chatController.onConnected);
-      event.on('disconnect', chatController.onDisconnected);
-      event.on('user_connected', chatController.connectedEventHandler);
-      event.on('init', chatController.handleInit);
-      event.on('private_message', chatController.handlePrivateMessage);
-      event.on('typing_status', chatController.handleTypingStatus);
-      event.on('fetch_chats', chatController.handleFetchChats);
-      event.on('mark_read', chatController.handleMarkRead);
-      event.on('room_message', chatController.handleRoomMessage);
-      event.on('join_room', chatController.handleJoinRoom);
-      event.on('leave_room', chatController.handleLeaveRoom);
+      event.on('connect', chatWebSocketController.onConnected);
+      event.on('disconnect', chatWebSocketController.onDisconnected);
+      event.on('user_connected', chatWebSocketController.connectedEventHandler);
+      event.on('init', chatWebSocketController.handleInit);
+      event.on('join_conversation', chatWebSocketController.handleJoinConversation);
+      event.on('send_message', chatWebSocketController.handleSendMessage);
+      event.on('typing', chatWebSocketController.handleTyping);
+      event.on('react_message', chatWebSocketController.handleReactMessage);
+      event.on('edit_message', chatWebSocketController.handleEditMessage);
+      event.on('delete_message', chatWebSocketController.handleDeleteMessage);
+      event.on('message_read', chatWebSocketController.handleMessageRead);
     });
   }
 }

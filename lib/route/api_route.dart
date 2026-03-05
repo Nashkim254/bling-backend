@@ -65,9 +65,24 @@ class ApiRoute implements Route {
       Router.get('/user/followers', followController.getFollowers);
       Router.get('/user/following', followController.getFollowing);
 
-      // Chats (HTTP)
+      // Chats — Conversations
       Router.get('/chats', chatController.getConversations);
-      Router.get('/chats/:userId', chatController.getMessages);
+      Router.get('/chats/archived', chatController.getArchivedConversations);
+      Router.post('/chats', chatController.createConversation);
+      Router.delete('/chats/:id', chatController.deleteConversation);
+      Router.post('/chats/:id/pin', chatController.pinConversation);
+      Router.post('/chats/:id/unpin', chatController.unpinConversation);
+      Router.post('/chats/:id/archive', chatController.archiveConversation);
+      Router.post('/chats/:id/unarchive', chatController.unarchiveConversation);
+      Router.post('/chats/:id/read', chatController.markConversationRead);
+      // Chats — Messages
+      Router.get('/chats/:id/messages', chatController.getMessages);
+      Router.post('/chats/:id/messages', chatController.sendMessage);
+      Router.delete('/messages/:id', chatController.deleteMessage);
+      Router.put('/messages/:id', chatController.editMessage);
+      Router.post('/messages/:id/react', chatController.reactToMessage);
+      // File upload
+      Router.post('/upload', chatController.uploadFile);
 
       // Notifications
       Router.get('/notifications', notificationController.getNotifications);

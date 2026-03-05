@@ -13,6 +13,7 @@ class LeaderboardController extends Controller {
     final sortBy = request.input('sort_by')?.toString() ?? 'score';
     final followingOnly = request.input('following_only')?.toString() == 'true';
     final verifiedOnly = request.input('verified_only')?.toString() == 'true';
+    final search = request.input('search')?.toString().trim() ?? '';
     final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
     final limit =
         int.tryParse(request.input('limit')?.toString() ?? '50') ?? 50;
@@ -32,6 +33,11 @@ class LeaderboardController extends Controller {
       // Verified filter
       final verifiedClause =
           verifiedOnly ? 'AND u.is_verified = true' : '';
+
+      // Search filter
+      final searchClause = search.isNotEmpty
+          ? "AND (LOWER(u.name) LIKE LOWER('%$search%') OR LOWER(u.username) LIKE LOWER('%$search%'))"
+          : '';
 
       // Following filter — only applies when auth user is known
       final followingJoin = followingOnly && authUserId.isNotEmpty
@@ -53,7 +59,7 @@ class LeaderboardController extends Controller {
              FROM users u
              LEFT JOIN wallets w ON w.user_id = u.id
              $followingJoin
-             WHERE u.deleted_at IS NULL $verifiedClause
+             WHERE u.deleted_at IS NULL $verifiedClause $searchClause
              ORDER BY $sortColumn DESC NULLS LAST
              LIMIT \$1 OFFSET \$2''',
           [limit, (page - 1) * limit],
@@ -76,7 +82,7 @@ class LeaderboardController extends Controller {
              ) post_likes ON post_likes.post_id = p.id
              LEFT JOIN challenge_entries ce ON ce.user_id = u.id
              $followingJoin
-             WHERE u.deleted_at IS NULL $verifiedClause
+             WHERE u.deleted_at IS NULL $verifiedClause $searchClause
              GROUP BY u.id, u.name, u.username, u.avatar, u.is_verified, w.balance
              ORDER BY score DESC
              LIMIT \$1 OFFSET \$2''',

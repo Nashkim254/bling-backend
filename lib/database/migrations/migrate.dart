@@ -24,6 +24,10 @@ import 'add_commission_columns.dart';
 import 'add_ad_campaign_columns.dart';
 import 'create_ad_impressions_table.dart';
 import 'create_ad_clicks_table.dart';
+import 'create_conversations_table.dart';
+import 'create_conversation_members_table.dart';
+import 'create_message_reactions_table.dart';
+import 'alter_chats_add_chat_fields.dart';
 
 void main(List<String> args) async {
   await MigrationConnection().setup();
@@ -63,6 +67,10 @@ class Migrate {
     await AddAdCampaignColumns().up();
     await CreateAdImpressionsTable().up();
     await CreateAdClicksTable().up();
+    await CreateConversationsTable().up();
+    await CreateConversationMembersTable().up();
+    await CreateMessageReactionsTable().up();
+    await AlterChatsAddChatFields().up();
   }
 
   dropTables() async {
