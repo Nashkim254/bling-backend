@@ -1,11 +1,13 @@
 import 'package:bling/app/http/controllers/ad_controller.dart';
 import 'package:bling/app/http/controllers/auth_controller.dart';
+import 'package:bling/app/http/controllers/otp_controller.dart';
 import 'package:bling/app/http/controllers/challenges_controller.dart';
 import 'package:bling/app/http/controllers/chat_controller.dart';
 import 'package:bling/app/http/controllers/follow_controller.dart';
 import 'package:bling/app/http/controllers/leaderboard_controller.dart';
 import 'package:bling/app/http/controllers/notification_controller.dart';
 import 'package:bling/app/http/controllers/posts_controller.dart';
+import 'package:bling/app/http/controllers/purchase_controller.dart';
 import 'package:bling/app/http/controllers/wallet_controller.dart';
 import 'package:bling/app/http/middleware/authenticate.dart';
 import 'package:vania/vania.dart';
@@ -18,6 +20,10 @@ class ApiRoute implements Route {
     // ─── Public Auth Routes ───────────────────────────────────────────
     Router.post('/register', authController.register);
     Router.post('/login', authController.login);
+
+    // ─── OTP ─────────────────────────────────────────────────────────
+    Router.post('/otp/send', otpController.sendOtp);
+    Router.post('/otp/verify', otpController.verifyOtp);
 
     // ─── Public Routes ────────────────────────────────────────────────
     Router.get('/users', authController.getUsers);
@@ -50,6 +56,7 @@ class ApiRoute implements Route {
       Router.get('/wallet', walletController.getWallet);
       Router.get('/wallet/transactions', walletController.getTransactions);
       Router.post('/bling/purchase', walletController.purchaseBling);
+      Router.post('/bling/purchase/verify', purchaseController.verifyPurchase);
       Router.post('/bling/transfer', walletController.transferBling);
 
       // Follow

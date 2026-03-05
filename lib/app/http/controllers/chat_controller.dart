@@ -31,7 +31,7 @@ class ChatController extends Controller {
                c.created_at as last_message_time,
                SUM(CASE WHEN to_user_id = \$1 AND is_read = 0 THEN 1 ELSE 0 END) OVER (PARTITION BY CASE WHEN from_user_id = \$1 THEN to_user_id ELSE from_user_id END) as unread_count
              FROM chats c
-             JOIN users u ON u.id = CASE WHEN from_user_id = \$1 THEN to_user_id ELSE from_user_id END
+             JOIN users u ON u.id::text = CASE WHEN from_user_id = \$1 THEN to_user_id ELSE from_user_id END
              WHERE from_user_id = \$1 OR to_user_id = \$1
              ORDER BY c.created_at DESC
            ) t

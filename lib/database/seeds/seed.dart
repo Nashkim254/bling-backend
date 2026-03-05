@@ -30,7 +30,8 @@ class Seeder {
         'id': const Uuid().v4(),
         'name': 'Starter',
         'bling_amount': 100,
-        'price_cents': 99, // $0.99
+        'price_cents': 99,
+        'store_product_id': 'com.example.bling.starter',
         'is_active': 1,
         'created_at': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
@@ -39,7 +40,8 @@ class Seeder {
         'id': const Uuid().v4(),
         'name': 'Basic',
         'bling_amount': 500,
-        'price_cents': 399, // $3.99
+        'price_cents': 399,
+        'store_product_id': 'com.example.bling.basic',
         'is_active': 1,
         'created_at': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
@@ -48,7 +50,8 @@ class Seeder {
         'id': const Uuid().v4(),
         'name': 'Popular',
         'bling_amount': 1200,
-        'price_cents': 799, // $7.99
+        'price_cents': 799,
+        'store_product_id': 'com.example.bling.popular',
         'is_active': 1,
         'created_at': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
@@ -57,7 +60,8 @@ class Seeder {
         'id': const Uuid().v4(),
         'name': 'Premium',
         'bling_amount': 3000,
-        'price_cents': 1499, // $14.99
+        'price_cents': 1499,
+        'store_product_id': 'com.example.bling.premium',
         'is_active': 1,
         'created_at': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
@@ -66,7 +70,8 @@ class Seeder {
         'id': const Uuid().v4(),
         'name': 'Elite',
         'bling_amount': 10000,
-        'price_cents': 3999, // $39.99
+        'price_cents': 3999,
+        'store_product_id': 'com.example.bling.elite',
         'is_active': 1,
         'created_at': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
@@ -75,12 +80,13 @@ class Seeder {
 
     for (final pkg in packages) {
       await connection!.statement(
-        'INSERT INTO bling_packages (id, name, bling_amount, price_cents, is_active, created_at, updated_at) VALUES (\$1,\$2,\$3,\$4,\$5,\$6,\$7)',
+        'INSERT INTO bling_packages (id, name, bling_amount, price_cents, store_product_id, is_active, created_at, updated_at) VALUES (\$1,\$2,\$3,\$4,\$5,\$6,\$7,\$8)',
         [
           pkg['id'],
           pkg['name'],
           pkg['bling_amount'],
           pkg['price_cents'],
+          pkg['store_product_id'],
           pkg['is_active'],
           pkg['created_at'],
           pkg['updated_at'],

@@ -18,6 +18,9 @@ import 'create_bling_transactions_table.dart';
 import 'create_follows_table.dart';
 import 'create_notifications_table.dart';
 import 'create_ads_table.dart';
+import 'create_otps_table.dart';
+import 'add_iap_columns.dart';
+import 'add_commission_columns.dart';
 
 void main(List<String> args) async {
   await MigrationConnection().setup();
@@ -51,9 +54,13 @@ class Migrate {
     await CreateFollowsTable().up();
     await CreateNotificationsTable().up();
     await CreateAdsTable().up();
+    await CreateOtpsTable().up();
+    await AddIapColumns().up();
+    await AddCommissionColumns().up();
   }
 
   dropTables() async {
+    await CreateOtpsTable().down();
     await CreateAdsTable().down();
     await CreateNotificationsTable().down();
     await CreateFollowsTable().down();

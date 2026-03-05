@@ -170,7 +170,11 @@ class WalletController extends Controller {
   }
 
   /// POST /api/bling/transfer  (authenticated)
-  /// Body: { to_user_id, amount, message? }
+  /// Body: { to_user_id, amount, message?, context? }
+  /// context: 'direct' (default) | 'post_tip' | 'challenge_tip'
+  ///
+  /// Commission (PLATFORM_COMMISSION_RATE %) is applied when context != 'direct'.
+  /// Sender pays the full amount; recipient receives amount minus fee.
   Future<Response> transferBling(Request request) async {
     request.validate({
       'to_user_id': 'required|string',
@@ -180,7 +184,7 @@ class WalletController extends Controller {
       'amount.required': 'Amount is required',
     });
 
-    final authUserId = request.input('auth_user_id') as String? ?? '';
+    final authUserId = request.input('auth_user_id')?.toString() ?? '';
     if (authUserId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
@@ -189,6 +193,7 @@ class WalletController extends Controller {
     final toUserId = body['to_user_id'] as String;
     final amount = int.tryParse(body['amount']?.toString() ?? '0') ?? 0;
     final message = body['message'] as String? ?? '';
+    final context = body['context'] as String? ?? 'direct';
 
     if (toUserId == authUserId) {
       return Response.json({'message': 'Cannot transfer to yourself'}, 400);
@@ -202,90 +207,134 @@ class WalletController extends Controller {
       return Response.json({'message': 'Recipient not found'}, 404);
     }
 
-    // Check sender's balance
+    // ── Commission ────────────────────────────────────────────────────────
+    final isTip = context == 'post_tip' || context == 'challenge_tip';
+    final commissionRate =
+        int.tryParse(Platform.environment['PLATFORM_COMMISSION_RATE'] ?? '5') ?? 5;
+    final feeAmount = isTip ? (amount * commissionRate / 100).floor() : 0;
+    final recipientAmount = amount - feeAmount;
+
+    // ── Check sender balance ──────────────────────────────────────────────
     final senderWallet =
         await Wallet().query().where('user_id', '=', authUserId).first();
-    if (senderWallet == null || (senderWallet['balance'] as int) < amount) {
+    if (senderWallet == null ||
+        (senderWallet['balance'] as num).toInt() < amount) {
       return Response.json({'message': 'Insufficient bling balance'}, 400);
     }
 
     final now = DateTime.now().toIso8601String();
+    final sender = await User().query().where('id', '=', authUserId).first();
 
-    // Deduct from sender
-    final newSenderBalance = (senderWallet['balance'] as int) - amount;
+    // ── Deduct full amount from sender ────────────────────────────────────
+    final newSenderBalance =
+        (senderWallet['balance'] as num).toInt() - amount;
     await Wallet().query().where('user_id', '=', authUserId).update({
       'balance': newSenderBalance,
       'updated_at': now,
     });
 
-    // Add to recipient
+    // ── Credit recipient (amount minus fee) ───────────────────────────────
     var recipientWallet =
         await Wallet().query().where('user_id', '=', toUserId).first();
     if (recipientWallet == null) {
       await Wallet().query().insert({
         'id': const Uuid().v4(),
         'user_id': toUserId,
-        'balance': amount,
+        'balance': recipientAmount,
         'created_at': now,
         'updated_at': now,
       });
     } else {
-      final newRecipientBalance = (recipientWallet['balance'] as int) + amount;
+      final newRecipientBalance =
+          (recipientWallet['balance'] as num).toInt() + recipientAmount;
       await Wallet().query().where('user_id', '=', toUserId).update({
         'balance': newRecipientBalance,
         'updated_at': now,
       });
     }
 
-    final sender = await User().query().where('id', '=', authUserId).first();
-    final transferId = const Uuid().v4();
-
-    // Record sender transaction (outgoing)
+    // ── Sender transaction (full debit) ───────────────────────────────────
     await BlingTransaction().query().insert({
-      'id': transferId,
+      'id': const Uuid().v4(),
       'user_id': authUserId,
       'to_user_id': toUserId,
       'type': 'transfer_out',
       'amount': amount,
+      'fee_amount': feeAmount,
+      'context': context,
       'description': message.isNotEmpty
-          ? 'Sent to ${recipient['name']}: $message'
-          : 'Sent to ${recipient['name']}',
+          ? 'Tipped ${recipient['name']}: $message'
+          : isTip
+              ? 'Tipped ${recipient['name']}'
+              : 'Sent to ${recipient['name']}',
       'created_at': now,
       'updated_at': now,
     });
 
-    // Record recipient transaction (incoming)
+    // ── Recipient transaction (amount received after fee) ─────────────────
     await BlingTransaction().query().insert({
       'id': const Uuid().v4(),
       'user_id': toUserId,
       'to_user_id': authUserId,
       'type': 'transfer_in',
-      'amount': amount,
+      'amount': recipientAmount,
+      'fee_amount': feeAmount,
+      'context': context,
       'description': message.isNotEmpty
-          ? 'Received from ${sender?['name']}: $message'
-          : 'Received from ${sender?['name']}',
+          ? 'Tip from ${sender?['name']}: $message'
+          : isTip
+              ? 'Tip from ${sender?['name']}'
+              : 'Received from ${sender?['name']}',
       'created_at': now,
       'updated_at': now,
     });
 
-    // Notify recipient
+    // ── Platform commission transaction (fee audit trail) ─────────────────
+    if (feeAmount > 0) {
+      await BlingTransaction().query().insert({
+        'id': const Uuid().v4(),
+        'user_id': authUserId,   // who generated this fee
+        'to_user_id': toUserId,  // whose tip it came from
+        'type': 'platform_commission',
+        'amount': feeAmount,
+        'fee_amount': feeAmount,
+        'context': context,
+        'description': '${commissionRate}% tip commission on ${amount} Bling',
+        'created_at': now,
+        'updated_at': now,
+      });
+    }
+
+    // ── Notify recipient ──────────────────────────────────────────────────
+    final notifBody = isTip
+        ? message.isNotEmpty
+            ? '${sender?['name']} tipped you $recipientAmount Bling ($feeAmount fee): $message'
+            : '${sender?['name']} tipped you $recipientAmount Bling'
+        : message.isNotEmpty
+            ? '${sender?['name']} sent you $amount Bling: $message'
+            : '${sender?['name']} sent you $amount Bling';
+
     await NotificationModel().query().insert({
       'id': const Uuid().v4(),
       'user_id': toUserId,
-      'type': 'bling_received',
-      'title': 'Bling Received!',
-      'body': message.isNotEmpty
-          ? '${sender?['name']} sent you $amount Bling: $message'
-          : '${sender?['name']} sent you $amount Bling',
-      'data': '{"amount":$amount,"from_user_id":"$authUserId"}',
+      'type': isTip ? 'tip_received' : 'bling_received',
+      'title': isTip ? 'You got a tip!' : 'Bling Received!',
+      'body': notifBody,
+      'data':
+          '{"amount":$recipientAmount,"fee":$feeAmount,"from_user_id":"$authUserId"}',
       'is_read': 0,
       'created_at': now,
       'updated_at': now,
     });
 
     return Response.json({
-      'message': 'Bling transferred successfully',
+      'message': isTip
+          ? 'Tip sent! ${recipient['name']} received $recipientAmount Bling.'
+          : 'Bling transferred successfully',
       'amount_sent': amount,
+      'recipient_received': recipientAmount,
+      'fee': feeAmount,
+      'commission_rate': isTip ? commissionRate : 0,
       'new_balance': newSenderBalance,
       'recipient': recipient['name'],
     }, HttpStatus.ok);

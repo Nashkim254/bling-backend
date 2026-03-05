@@ -170,6 +170,14 @@ class AuthController extends Controller {
         .where('is_active', '=', 1)
         .count();
 
+    // Global rank = users with higher bling_score + 1
+    final userScore = (user['bling_score'] as num?)?.toInt() ?? 0;
+    final rankRows = await connection!.select(
+      'SELECT COUNT(*) as cnt FROM users WHERE bling_score > \$1 AND deleted_at IS NULL',
+      [userScore],
+    );
+    final globalRank = ((rankRows.first['cnt'] as num?)?.toInt() ?? 0) + 1;
+
     return Response.json({
       'user': {
         'id': user['id'],
@@ -180,12 +188,13 @@ class AuthController extends Controller {
         'cover_image': user['cover_image'],
         'bio': user['bio'],
         'account_type': user['account_type'],
-        'bling_score': user['bling_score'],
+        'bling_score': userScore,
         'is_verified': user['is_verified'],
         'bling_balance': blingBalance,
         'followers_count': followersCount,
         'following_count': followingCount,
         'posts_count': postsCount,
+        'global_rank': globalRank,
         'created_at': user['created_at'].toString(),
       }
     }, HttpStatus.ok);
