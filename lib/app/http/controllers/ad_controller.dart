@@ -77,7 +77,7 @@ class AdController extends Controller {
   /// POST /api/ads/:id/impression  (authenticated)
   /// Records an impression and deducts CPM cost from ad budget.
   Future<Response> recordImpression(Request request) async {
-    final adId = request.param('id') as String? ?? '';
+    final adId = request.params()['id'] as String? ?? '';
     final userId = request.input('auth_user_id')?.toString() ?? '';
     if (adId.isEmpty || userId.isEmpty) {
       return Response.json({'message': 'Bad request'}, 400);
@@ -123,7 +123,7 @@ class AdController extends Controller {
 
   /// POST /api/ads/:id/click  (authenticated)
   Future<Response> recordClick(Request request) async {
-    final adId = request.param('id') as String? ?? '';
+    final adId = request.params()['id'] as String? ?? '';
     final userId = request.input('auth_user_id')?.toString() ?? '';
     if (adId.isEmpty || userId.isEmpty) {
       return Response.json({'message': 'Bad request'}, 400);
@@ -287,7 +287,7 @@ class AdController extends Controller {
   /// Body: { status: 'active' | 'paused' }
   Future<Response> updateAd(Request request) async {
     final advertiserId = request.input('auth_user_id')?.toString() ?? '';
-    final adId = request.param('id') as String? ?? '';
+    final adId = request.params()['id'] as String? ?? '';
     if (advertiserId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }

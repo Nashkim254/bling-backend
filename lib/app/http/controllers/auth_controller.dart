@@ -241,6 +241,22 @@ class AuthController extends Controller {
       isFollowing = follow != null;
     }
 
+    final followersCount =
+        await Follow().query().where('following_id', '=', userId).count();
+    final followingCount =
+        await Follow().query().where('follower_id', '=', userId).count();
+    final postsCount = await Posts()
+        .query()
+        .where('user_id', '=', userId)
+        .where('is_active', '=', 1)
+        .count();
+    final userScore = (user['bling_score'] as num?)?.toInt() ?? 0;
+    final rankRows = await connection!.select(
+      'SELECT COUNT(*) as cnt FROM users WHERE bling_score > \$1 AND deleted_at IS NULL',
+      [userScore],
+    );
+    final globalRank = ((rankRows.first['cnt'] as num?)?.toInt() ?? 0) + 1;
+
     return Response.json({
       'user': {
         'id': user['id'],
@@ -249,9 +265,13 @@ class AuthController extends Controller {
         'avatar': user['avatar'],
         'cover_image': user['cover_image'],
         'bio': user['bio'],
-        'bling_score': user['bling_score'],
+        'bling_score': userScore,
         'is_verified': user['is_verified'],
         'is_following': isFollowing,
+        'followers_count': followersCount,
+        'following_count': followingCount,
+        'posts_count': postsCount,
+        'global_rank': globalRank,
         'created_at': user['created_at'].toString(),
       }
     }, HttpStatus.ok);
