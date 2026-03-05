@@ -75,6 +75,13 @@ class ApiRoute implements Route {
 
       // Leaderboard (auth version includes my_rank)
       Router.get('/leaderboard/me', leaderboardController.getLeaderboard);
+
+      // Ads — campaign management & tracking
+      Router.post('/ads', adController.createAd);
+      Router.get('/ads/my', adController.myCampaigns);
+      Router.put('/ads/:id', adController.updateAd);
+      Router.post('/ads/:id/impression', adController.recordImpression);
+      Router.post('/ads/:id/click', adController.recordClick);
     }, middleware: [AuthenticateMiddleware()]);
 
     // ─── Legacy endpoints (keep backward compat) ─────────────────────

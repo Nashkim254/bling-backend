@@ -21,6 +21,9 @@ import 'create_ads_table.dart';
 import 'create_otps_table.dart';
 import 'add_iap_columns.dart';
 import 'add_commission_columns.dart';
+import 'add_ad_campaign_columns.dart';
+import 'create_ad_impressions_table.dart';
+import 'create_ad_clicks_table.dart';
 
 void main(List<String> args) async {
   await MigrationConnection().setup();
@@ -57,6 +60,9 @@ class Migrate {
     await CreateOtpsTable().up();
     await AddIapColumns().up();
     await AddCommissionColumns().up();
+    await AddAdCampaignColumns().up();
+    await CreateAdImpressionsTable().up();
+    await CreateAdClicksTable().up();
   }
 
   dropTables() async {
