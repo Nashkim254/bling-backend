@@ -32,6 +32,8 @@ import 'alter_comments_add_parent_id.dart';
 import 'create_blocks_table.dart';
 import 'create_reports_table.dart';
 import 'alter_users_add_status.dart';
+import 'alter_users_add_fcm_token.dart';
+import 'alter_users_add_location.dart';
 
 void main(List<String> args) async {
   await MigrationConnection().setup();
@@ -79,6 +81,8 @@ class Migrate {
     await CreateBlocksTable().up();
     await CreateReportsTable().up();
     await AlterUsersAddStatus().up();
+    await AlterUsersAddFcmToken().up();
+    await AlterUsersAddLocation().up();
   }
 
   dropTables() async {

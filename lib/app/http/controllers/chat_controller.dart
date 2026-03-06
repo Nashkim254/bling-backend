@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
 import 'package:bling/app/models/block_model.dart';
+import 'package:bling/services/fcm_service.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
@@ -376,6 +378,13 @@ class ChatController extends Controller {
         [content.isNotEmpty ? content : '📎 Attachment', me, now, convId],
       );
 
+      // Push to all other conversation members
+      unawaited(_notifyChatMembers(
+        convId: convId,
+        senderId: me,
+        content: content.isNotEmpty ? content : '📎 Attachment',
+      ));
+
       return Response.json({'message_id': msgId, 'created_at': now}, HttpStatus.ok);
     } catch (e) {
       return Response.json({'message': 'Error', 'error': e.toString()}, 500);
@@ -527,6 +536,35 @@ class ChatController extends Controller {
       }, HttpStatus.ok);
     } catch (e) {
       return Response.json({'message': 'Upload failed', 'error': e.toString()}, 500);
+    }
+  }
+
+
+  Future<void> _notifyChatMembers({
+    required String convId,
+    required String senderId,
+    required String content,
+  }) async {
+    try {
+      final sender = await connection!.select(
+        'SELECT name FROM users WHERE id = \$1', [senderId]);
+      final senderName = sender.isNotEmpty ? sender.first['name'] as String? ?? 'Someone' : 'Someone';
+
+      final members = await connection!.select(
+        'SELECT user_id FROM conversation_members WHERE conversation_id = \$1 AND user_id != \$2',
+        [convId, senderId],
+      );
+      final ids = members.map((r) => r['user_id'] as String).toList();
+      if (ids.isEmpty) return;
+
+      await FcmService.instance.sendToUsers(
+        ids,
+        title: senderName,
+        body: content,
+        data: {'type': 'chat_message', 'conversation_id': convId},
+      );
+    } catch (e) {
+      print('[FCM] _notifyChatMembers error: \$e');
     }
   }
 

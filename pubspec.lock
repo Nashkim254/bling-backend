@@ -114,7 +114,7 @@ packages:
     source: hosted
     version: "3.1.2"
   dart_jsonwebtoken:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: dart_jsonwebtoken
       sha256: "866787dc17afaef46a9ea7dd33eefe60c6d82084b4a36d70e8e788d091cd04ef"

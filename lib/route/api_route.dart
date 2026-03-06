@@ -42,6 +42,9 @@ class ApiRoute implements Route {
       // User profile
       Router.get('/user/profile', authController.getProfile);
       Router.put('/user/profile', authController.updateProfile);
+      Router.put('/user/fcm-token', authController.updateFcmToken);
+      Router.put('/user/location', authController.updateLocation);
+      Router.get('/users/nearby', authController.getNearbyUsers);
 
       // Feed & Posts
       Router.get('/feed', postsController.getFeed);

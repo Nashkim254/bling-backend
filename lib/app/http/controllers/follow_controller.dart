@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:bling/app/models/follow.dart';
 import 'package:bling/app/models/notification_model.dart';
+import 'package:bling/services/fcm_service.dart';
 import 'package:bling/app/models/user.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
@@ -56,6 +58,13 @@ class FollowController extends Controller {
       'created_at': now,
       'updated_at': now,
     });
+
+    unawaited(FcmService.instance.sendToUser(
+      followingId,
+      title: 'New Follower',
+      body: '${follower?['name'] ?? 'Someone'} started following you',
+      data: {'type': 'follow', 'user_id': authUserId},
+    ));
 
     return Response.json(
         {'message': 'Followed successfully', 'is_following': true}, 201);

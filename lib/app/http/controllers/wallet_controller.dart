@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:bling/app/models/bling_package.dart';
 import 'package:bling/app/models/bling_transaction.dart';
 import 'package:bling/app/models/notification_model.dart';
+import 'package:bling/services/fcm_service.dart';
 import 'package:bling/app/models/user.dart';
 import 'package:bling/app/models/wallet.dart';
 import 'package:uuid/uuid.dart';
@@ -161,6 +163,14 @@ class WalletController extends Controller {
 
     final updatedWallet =
         await Wallet().query().where('user_id', '=', authUserId).first();
+
+    // Push notification to buyer
+    unawaited(FcmService.instance.sendToUser(
+      authUserId,
+      title: 'Bling Purchased! 🎉',
+      body: 'You received $blingAmount Bling from ${package['name']} package',
+      data: {'type': 'purchase', 'amount': blingAmount.toString()},
+    ));
 
     return Response.json({
       'message': 'Bling purchased successfully',
@@ -326,6 +336,24 @@ class WalletController extends Controller {
       'created_at': now,
       'updated_at': now,
     });
+
+    // Push to recipient
+    unawaited(FcmService.instance.sendToUser(
+      toUserId,
+      title: isTip ? 'You got a tip! 💰' : 'Bling Received! 💎',
+      body: notifBody,
+      data: {'type': isTip ? 'tip_received' : 'bling_received', 'amount': recipientAmount.toString(), 'from_user_id': authUserId},
+    ));
+
+    // Push to sender (confirmation)
+    unawaited(FcmService.instance.sendToUser(
+      authUserId,
+      title: isTip ? 'Tip Sent!' : 'Transfer Complete',
+      body: isTip
+          ? 'You tipped ${recipient['name']} $recipientAmount Bling'
+          : 'You sent $amount Bling to ${recipient['name']}',
+      data: {'type': 'transfer_sent', 'amount': amount.toString(), 'to_user_id': toUserId},
+    ));
 
     return Response.json({
       'message': isTip

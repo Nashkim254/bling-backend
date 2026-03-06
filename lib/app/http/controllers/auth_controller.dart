@@ -341,10 +341,14 @@ class AuthController extends Controller {
       ];
     }
 
-    var query = User()
-        .query()
-        .select(['id', 'name', 'username', 'avatar', 'bling_score', 'is_verified'])
-        .where('status', '=', 'active');
+    var query = User().query().select([
+      'id',
+      'name',
+      'username',
+      'avatar',
+      'bling_score',
+      'is_verified'
+    ]).where('status', '=', 'active');
 
     if (search.isNotEmpty) {
       query = query.whereRaw(
@@ -364,6 +368,84 @@ class AuthController extends Controller {
 
     return Response.json({'users': result}, HttpStatus.ok);
   }
+
+  /// PUT /api/user/fcm-token  (authenticated)
+  Future<Response> updateFcmToken(Request request) async {
+    final userId = request.input('auth_user_id') as String? ?? '';
+    if (userId.isEmpty) {
+      return Response.json({'message': 'Unauthenticated'}, 401);
+    }
+
+    final token = request.body['fcm_token']?.toString() ?? '';
+    if (token.isEmpty) {
+      return Response.json({'message': 'fcm_token required'}, 422);
+    }
+
+    await User().query().where('id', '=', userId).update({
+      'fcm_token': token,
+      'updated_at': DateTime.now().toIso8601String(),
+    });
+
+    return Response.json({'message': 'FCM token updated'}, 200);
+  }
+
+  /// PUT /api/user/location  (authenticated)
+  Future<Response> updateLocation(Request request) async {
+    final userId = request.input('auth_user_id') as String? ?? '';
+    if (userId.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
+
+    final lat = double.tryParse(request.body['latitude']?.toString() ?? '');
+    final lng = double.tryParse(request.body['longitude']?.toString() ?? '');
+    if (lat == null || lng == null) {
+      return Response.json({'message': 'latitude and longitude required'}, 422);
+    }
+
+    await User().query().where('id', '=', userId).update({
+      'latitude': lat,
+      'longitude': lng,
+      'updated_at': DateTime.now().toIso8601String(),
+    });
+
+    return Response.json({'message': 'Location updated'}, 200);
+  }
+
+  /// GET /api/users/nearby?radius=20  (authenticated)
+  /// Returns users within [radius] km who have shared their location.
+  Future<Response> getNearbyUsers(Request request) async {
+    final userId = request.input('auth_user_id') as String? ?? '';
+    if (userId.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
+
+    final radius = double.tryParse(request.input('radius')?.toString() ?? '20') ?? 20.0;
+
+    // Haversine formula in PostgreSQL
+    final rows = await connection!.select("""
+      SELECT id, name, username, avatar, latitude, longitude,
+        (6371 * acos(
+          cos(radians((SELECT latitude FROM users WHERE id = \$1))) *
+          cos(radians(latitude)) *
+          cos(radians(longitude) - radians((SELECT longitude FROM users WHERE id = \$1))) +
+          sin(radians((SELECT latitude FROM users WHERE id = \$1))) *
+          sin(radians(latitude))
+        )) AS distance_km
+      FROM users
+      WHERE id != \$1
+        AND latitude IS NOT NULL
+        AND longitude IS NOT NULL
+        AND status = 'active'
+      HAVING (6371 * acos(
+          cos(radians((SELECT latitude FROM users WHERE id = \$1))) *
+          cos(radians(latitude)) *
+          cos(radians(longitude) - radians((SELECT longitude FROM users WHERE id = \$1))) +
+          sin(radians((SELECT latitude FROM users WHERE id = \$1))) *
+          sin(radians(latitude))
+        )) < \$2
+      ORDER BY distance_km ASC
+      LIMIT 100
+    """, [userId, radius]);
+
+    return Response.json({'users': rows}, 200);
+  }
+
 }
 
 final AuthController authController = AuthController();

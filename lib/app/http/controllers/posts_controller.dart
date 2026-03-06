@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,6 +7,7 @@ import 'package:bling/app/models/likes_model.dart';
 import 'package:bling/app/models/notification_model.dart';
 import 'package:bling/app/models/posts.dart';
 import 'package:bling/app/models/user.dart';
+import 'package:bling/services/fcm_service.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
@@ -34,8 +36,8 @@ class PostsController extends Controller {
             .get();
         blockedIds.addAll(
             (blockedByMe as List).map((r) => r['blocked_user_id'].toString()));
-        blockedIds.addAll(
-            (blockedMe as List).map((r) => r['user_id'].toString()));
+        blockedIds
+            .addAll((blockedMe as List).map((r) => r['user_id'].toString()));
       }
 
       var postsQuery = Posts()
@@ -66,7 +68,8 @@ class PostsController extends Controller {
         postsQuery = postsQuery.where('posts.user_id', '!=', id);
       }
 
-      final posts = await postsQuery.groupBy([
+      final posts = await postsQuery
+          .groupBy([
             'posts.id',
             'posts.user_id',
             'posts.caption',
@@ -261,6 +264,10 @@ class PostsController extends Controller {
         'updated_at': now,
       });
 
+      // Notify followers about new post
+      unawaited(_notifyFollowers(
+          authUserId, postId, body['caption'] as String? ?? ''));
+
       return Response.json({
         'message': 'Post created successfully',
         'post_id': postId,
@@ -337,10 +344,10 @@ class PostsController extends Controller {
         'created_at': now,
         'updated_at': now,
       });
+      final liker = await User().query().where('id', '=', authUserId).first();
 
       // Create notification for post owner (if not self-like)
       if (post['user_id'] != authUserId) {
-        final liker = await User().query().where('id', '=', authUserId).first();
         await NotificationModel().query().insert({
           'id': const Uuid().v4(),
           'user_id': post['user_id'],
@@ -352,6 +359,16 @@ class PostsController extends Controller {
           'created_at': now,
           'updated_at': now,
         });
+      }
+
+      // Push notification
+      if (post['user_id'] != authUserId) {
+        unawaited(FcmService.instance.sendToUser(
+          post['user_id'] as String,
+          title: 'New Like',
+          body: '${liker?['name'] ?? 'Someone'} liked your post',
+          data: {'type': 'like', 'post_id': postId},
+        ));
       }
 
       return Response.json({'message': 'Post liked', 'liked': true}, 200);
@@ -385,7 +402,15 @@ class PostsController extends Controller {
 
     await connection!.statement(
       'INSERT INTO comments (id, user_id, post_id, parent_id, content, created_at, updated_at) VALUES (\$1,\$2,\$3,\$4,\$5,\$6,\$7)',
-      [commentId, authUserId, postId, parentId, request.body['content'], now, now],
+      [
+        commentId,
+        authUserId,
+        postId,
+        parentId,
+        request.body['content'],
+        now,
+        now
+      ],
     );
 
     // Notify post owner
@@ -405,6 +430,21 @@ class PostsController extends Controller {
       });
     }
 
+    // Push notification
+    if (post['user_id'] != authUserId) {
+      final commenterName = (await User()
+              .query()
+              .where('id', '=', authUserId)
+              .first())?['name'] ??
+          'Someone';
+      unawaited(FcmService.instance.sendToUser(
+        post['user_id'] as String,
+        title: 'New Comment',
+        body: '$commenterName commented on your post',
+        data: {'type': 'comment', 'post_id': postId},
+      ));
+    }
+
     return Response.json({
       'message': 'Comment added',
       'comment_id': commentId,
@@ -416,7 +456,8 @@ class PostsController extends Controller {
     final postId = request.params()['id'] as String? ?? '';
     final authUserId = request.input('auth_user_id') as String? ?? '';
     final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
-    final limit = int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
+    final limit =
+        int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
 
     // Build excluded user IDs (people who blocked auth user or are blocked)
     final List<String> blockedIds = [];
@@ -433,8 +474,8 @@ class PostsController extends Controller {
           .get();
       blockedIds.addAll(
           (blockedByMe as List).map((r) => r['blocked_user_id'].toString()));
-      blockedIds.addAll(
-          (blockedMe as List).map((r) => r['user_id'].toString()));
+      blockedIds
+          .addAll((blockedMe as List).map((r) => r['user_id'].toString()));
     }
 
     // Build exclusion clause
@@ -493,24 +534,27 @@ class PostsController extends Controller {
           'user_avatar': c['user_avatar'],
           'created_at': c['created_at'].toString(),
           'reply_count': c['reply_count'] ?? 0,
-          'replies': (replyMap[cid] ?? []).map((r) => {
-            'id': r['id'],
-            'content': r['content'],
-            'parent_id': r['parent_id'],
-            'user_id': r['user_id'],
-            'user_name': r['user_name'],
-            'username': r['username'],
-            'user_avatar': r['user_avatar'],
-            'created_at': r['created_at'].toString(),
-            'reply_count': 0,
-            'replies': [],
-          }).toList(),
+          'replies': (replyMap[cid] ?? [])
+              .map((r) => {
+                    'id': r['id'],
+                    'content': r['content'],
+                    'parent_id': r['parent_id'],
+                    'user_id': r['user_id'],
+                    'user_name': r['user_name'],
+                    'username': r['username'],
+                    'user_avatar': r['user_avatar'],
+                    'created_at': r['created_at'].toString(),
+                    'reply_count': 0,
+                    'replies': [],
+                  })
+              .toList(),
         };
       }).toList();
 
       return Response.json({'comments': result}, HttpStatus.ok);
     } catch (e) {
-      return Response.json({'message': 'Error fetching comments', 'error': e.toString()}, 500);
+      return Response.json(
+          {'message': 'Error fetching comments', 'error': e.toString()}, 500);
     }
   }
 
@@ -545,18 +589,19 @@ class PostsController extends Controller {
              AND p.hashtags::jsonb @> \$1::jsonb
            ORDER BY p.created_at DESC
            LIMIT \$2 OFFSET \$3''',
-        [jsonEncode([tag]), limit, offset],
+        [
+          jsonEncode([tag]),
+          limit,
+          offset
+        ],
       );
 
       List<String> likedPostIds = [];
       if (authUserId.isNotEmpty) {
-        final liked = await LikesModel()
-            .query()
-            .where('user_id', '=', authUserId)
-            .get();
-        likedPostIds = (liked as List)
-            .map((l) => l['post_id']?.toString() ?? '')
-            .toList();
+        final liked =
+            await LikesModel().query().where('user_id', '=', authUserId).get();
+        likedPostIds =
+            (liked as List).map((l) => l['post_id']?.toString() ?? '').toList();
       }
 
       final data = rows.map((p) {
@@ -600,6 +645,36 @@ class PostsController extends Controller {
     final user = await User().query().where('id', '=', userId).first();
     final currentScore = (user?['bling_score'] as int?) ?? 0;
     return currentScore + increment;
+  }
+
+  Future<void> _notifyFollowers(
+      String userId, String postId, String caption) async {
+    try {
+      final poster = await User()
+          .query()
+          .select(['name'])
+          .where('id', '=', userId)
+          .first();
+      final name = poster?['name'] as String? ?? 'Someone';
+      final preview =
+          caption.length > 60 ? '${caption.substring(0, 60)}…' : caption;
+
+      final followers = await connection!.select(
+        'SELECT follower_id FROM follows WHERE following_id = \$1',
+        [userId],
+      );
+      final ids = followers.map((r) => r['follower_id'] as String).toList();
+      if (ids.isEmpty) return;
+
+      await FcmService.instance.sendToUsers(
+        ids,
+        title: '$name posted',
+        body: preview.isNotEmpty ? preview : 'New post',
+        data: {'type': 'new_post', 'post_id': postId, 'user_id': userId},
+      );
+    } catch (e) {
+      print('[FCM] _notifyFollowers error: \$e');
+    }
   }
 }
 
