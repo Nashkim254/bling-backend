@@ -24,18 +24,20 @@ class ApiRoute implements Route {
     Router.post('/register', authController.register);
     Router.post('/login', authController.login);
 
-    // ─── OTP ─────────────────────────────────────────────────────────
+    // ─── OTP & Password Reset ─────────────────────────────────────────
     Router.post('/otp/send', otpController.sendOtp);
     Router.post('/otp/verify', otpController.verifyOtp);
+    Router.post('/auth/reset-password', authController.resetPassword);
+    Router.post('/auth/refresh', authController.refreshToken);
 
     // ─── Public Routes ────────────────────────────────────────────────
     Router.get('/users', authController.getUsers);
-    Router.get('/users/:id', authController.getUserById);
+    Router.get('/users/{id}', authController.getUserById);
     Router.get('/leaderboard', leaderboardController.getLeaderboard);
     Router.get('/challenges', challengesController.getChallenges);
     Router.get('/ads', adController.getAds);
     Router.get('/bling/packages', walletController.getPackages);
-    Router.get('/posts/hashtag/:tag', postsController.getPostsByHashtag);
+    Router.get('/posts/hashtag/{tag}', postsController.getPostsByHashtag);
 
     // ─── Authenticated Routes ─────────────────────────────────────────
     Router.group(() {
@@ -50,14 +52,14 @@ class ApiRoute implements Route {
       Router.get('/feed', postsController.getFeed);
       Router.get('/posts', postsController.getPosts);
       Router.post('/posts', postsController.createPost);
-      Router.delete('/posts/:id', postsController.deletePost);
-      Router.post('/posts/:id/like', postsController.toggleLike);
-      Router.post('/posts/:id/comment', postsController.addComment);
-      Router.get('/posts/:id/comments', postsController.getComments);
+      Router.delete('/posts/{id}', postsController.deletePost);
+      Router.post('/posts/{id}/like', postsController.toggleLike);
+      Router.post('/posts/{id}/comment', postsController.addComment);
+      Router.get('/posts/{id}/comments', postsController.getComments);
 
       // Challenges
       Router.post('/challenges', challengesController.createChallenge);
-      Router.post('/challenges/:id/participate', challengesController.participate);
+      Router.post('/challenges/{id}/participate', challengesController.participate);
 
       // Wallet & Bling
       Router.get('/wallet', walletController.getWallet);
@@ -67,27 +69,15 @@ class ApiRoute implements Route {
       Router.post('/bling/transfer', walletController.transferBling);
 
       // Follow
-      Router.post('/follow/:userId', followController.follow);
-      Router.delete('/follow/:userId', followController.unfollow);
+      Router.post('/follow/{userId}', followController.follow);
+      Router.delete('/follow/{userId}', followController.unfollow);
       Router.get('/user/followers', followController.getFollowers);
       Router.get('/user/following', followController.getFollowing);
 
-      // Chats — Conversations
-      Router.get('/chats', chatController.getConversations);
-      Router.get('/chats/archived', chatController.getArchivedConversations);
-      Router.post('/chats', chatController.createConversation);
-      Router.delete('/chats/:id', chatController.deleteConversation);
-      Router.post('/chats/:id/pin', chatController.pinConversation);
-      Router.post('/chats/:id/unpin', chatController.unpinConversation);
-      Router.post('/chats/:id/archive', chatController.archiveConversation);
-      Router.post('/chats/:id/unarchive', chatController.unarchiveConversation);
-      Router.post('/chats/:id/read', chatController.markConversationRead);
-      // Chats — Messages
-      Router.get('/chats/:id/messages', chatController.getMessages);
-      Router.post('/chats/:id/messages', chatController.sendMessage);
-      Router.delete('/messages/:id', chatController.deleteMessage);
-      Router.put('/messages/:id', chatController.editMessage);
-      Router.post('/messages/:id/react', chatController.reactToMessage);
+      // Messages
+      Router.delete('/messages/{id}', chatController.deleteMessage);
+      Router.put('/messages/{id}', chatController.editMessage);
+      Router.post('/messages/{id}/react', chatController.reactToMessage);
       // File upload
       Router.post('/upload', chatController.uploadFile);
 
@@ -99,13 +89,13 @@ class ApiRoute implements Route {
       Router.get('/leaderboard/me', leaderboardController.getLeaderboard);
 
       // Block
-      Router.post('/block/:userId', blockController.blockUser);
-      Router.delete('/block/:userId', blockController.unblockUser);
+      Router.post('/block/{userId}', blockController.blockUser);
+      Router.delete('/block/{userId}', blockController.unblockUser);
       Router.get('/blocks', blockController.listBlocked);
 
       // Report
-      Router.post('/report/user/:userId', reportController.reportUser);
-      Router.post('/report/post/:postId', reportController.reportPost);
+      Router.post('/report/user/{userId}', reportController.reportUser);
+      Router.post('/report/post/{postId}', reportController.reportPost);
 
       // Account management
       Router.delete('/account', accountController.deleteAccount);
@@ -114,9 +104,29 @@ class ApiRoute implements Route {
       // Ads — campaign management & tracking
       Router.post('/ads', adController.createAd);
       Router.get('/ads/my', adController.myCampaigns);
-      Router.put('/ads/:id', adController.updateAd);
-      Router.post('/ads/:id/impression', adController.recordImpression);
-      Router.post('/ads/:id/click', adController.recordClick);
+      Router.put('/ads/{id}', adController.updateAd);
+      Router.post('/ads/{id}/impression', adController.recordImpression);
+      Router.post('/ads/{id}/click', adController.recordClick);
+    }, middleware: [AuthenticateMiddleware()]);
+
+    // ─── Chats — flat routes inside auth middleware group ────────────────────
+    // NOTE: Vania cannot match /:param/sub-path inside a prefix group, so all
+    // chat sub-routes use flat 2-segment names (no nested param paths).
+    Router.group(() {
+      // Conversation list/create/delete (2-segment max — safe)
+      Router.get('/chats/archived', chatController.getArchivedConversations);
+      Router.get('/chats', chatController.getConversations);
+      Router.post('/chats', chatController.createConversation);
+      Router.delete('/chats/{id}', chatController.deleteConversation);
+      // Messages — flat: /chat-messages/{id}
+      Router.get('/chat-messages/{id}', chatController.getMessages);
+      Router.post('/chat-messages/{id}', chatController.sendMessage);
+      // Actions — flat: /chat-<action>/{id}
+      Router.post('/chat-pin/{id}', chatController.pinConversation);
+      Router.post('/chat-unpin/{id}', chatController.unpinConversation);
+      Router.post('/chat-archive/{id}', chatController.archiveConversation);
+      Router.post('/chat-unarchive/{id}', chatController.unarchiveConversation);
+      Router.post('/chat-read/{id}', chatController.markConversationRead);
     }, middleware: [AuthenticateMiddleware()]);
 
     // ─── Legacy endpoints (keep backward compat) ─────────────────────

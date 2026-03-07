@@ -1,3 +1,4 @@
+import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:vania/vania.dart';
 import 'package:vania/src/websocket/websocket_session.dart';
 import 'package:uuid/uuid.dart';
@@ -8,14 +9,15 @@ class ChatWebSocketController extends Controller {
   // clientId -> userId
   final Map<String, String> _clientToUser = {};
 
-  // toRoom() uses key '${routePath}_$roomId', routePath for /ws route is '/ws'
-  static const _routePrefix = '/ws_';
+  // toRoom() uses key '${routePath}_$roomId', routePath for /ws route is 'ws' (leading slash stripped)
+  static const _routePrefix = 'ws_';
 
   void _joinRoom(WebSocketClient client, String convId) {
     WebsocketSession().joinRoom(client.clientId, '$_routePrefix$convId');
   }
 
-  void _toConv(WebSocketClient client, String convId, String event, dynamic data) {
+  void _toConv(
+      WebSocketClient client, String convId, String event, dynamic data) {
     client.toRoom(event, convId, data);
   }
 
@@ -36,7 +38,16 @@ class ChatWebSocketController extends Controller {
 
   /// init — register user and join all their conversation rooms
   void handleInit(WebSocketClient client, dynamic data) async {
-    final userId = data['userId']?.toString() ?? '';
+    // Prefer token-based auth over client-provided userId
+    String userId = data['userId']?.toString() ?? '';
+    final token = data['token']?.toString() ?? '';
+    if (token.isNotEmpty) {
+      try {
+        await Auth().check(token, isCustomToken: true);
+        final id = Auth().id()?.toString() ?? '';
+        if (id.isNotEmpty) userId = id;
+      } catch (_) {}
+    }
     if (userId.isEmpty) return;
 
     _userToClient[userId] = client.clientId;
@@ -48,7 +59,7 @@ class ChatWebSocketController extends Controller {
         [userId],
       );
       for (final row in rows) {
-        final convId = row['conversation_id']?.toString() ?? '';
+        final convId = row['conversation_id']?.toString().trim() ?? '';
         if (convId.isNotEmpty) _joinRoom(client, convId);
       }
     } catch (e) {
@@ -69,7 +80,22 @@ class ChatWebSocketController extends Controller {
 
   /// send_message — persist and broadcast to conversation
   void handleSendMessage(WebSocketClient client, dynamic data) async {
-    final userId = _clientToUser[client.clientId] ?? '';
+    String userId = _clientToUser[client.clientId] ?? '';
+    // Fallback: extract from token if clientToUser map is empty (e.g. after server restart)
+    if (userId.isEmpty) {
+      final token = data['token']?.toString() ?? '';
+      if (token.isNotEmpty) {
+        try {
+          await Auth().check(token, isCustomToken: true);
+          final id = Auth().id()?.toString() ?? '';
+          if (id.isNotEmpty) {
+            userId = id;
+            _clientToUser[client.clientId] = userId;
+            _userToClient[userId] = client.clientId;
+          }
+        } catch (_) {}
+      }
+    }
     final convId = data['conversationId']?.toString() ?? '';
     final content = data['content']?.toString() ?? '';
     final messageType = data['messageType']?.toString() ?? 'text';
@@ -90,7 +116,18 @@ class ChatWebSocketController extends Controller {
           content, message_type, file_url, file_name, file_size, reply_to_id,
           is_read, delivered, is_deleted, created_at, updated_at)
         VALUES (\$1,\$2,\$3,\$3,\$4,\$5,\$6,\$7,\$8,\$9,0,1,0,\$10,\$10)
-      ''', [msgId, convId, userId, content, messageType, fileUrl, fileName, fileSize, replyToId, now]);
+      ''', [
+        msgId,
+        convId,
+        userId,
+        content,
+        messageType,
+        fileUrl,
+        fileName,
+        fileSize,
+        replyToId,
+        now
+      ]);
 
       await connection!.statement(
         'UPDATE conversations SET last_message = \$1, last_message_sender_id = \$2, last_message_at = \$3, updated_at = \$3 WHERE id = \$4',
@@ -98,10 +135,12 @@ class ChatWebSocketController extends Controller {
       );
 
       final userRows = await connection!.select(
-        'SELECT name, username, avatar FROM users WHERE id::text = \$1 LIMIT 1', [userId],
+        'SELECT name, username, avatar FROM users WHERE id::text = \$1 LIMIT 1',
+        [userId],
       );
       final senderName = userRows.isNotEmpty ? userRows.first['name'] : '';
-      final senderUsername = userRows.isNotEmpty ? userRows.first['username'] : '';
+      final senderUsername =
+          userRows.isNotEmpty ? userRows.first['username'] : '';
       final senderAvatar = userRows.isNotEmpty ? userRows.first['avatar'] : '';
 
       String? replyContent;
@@ -141,7 +180,8 @@ class ChatWebSocketController extends Controller {
       };
 
       _toConv(client, convId, 'new_message', message);
-      client.emit('message_sent', {'message_id': msgId, 'conversation_id': convId, 'created_at': now});
+      client.emit('message_sent',
+          {'message_id': msgId, 'conversation_id': convId, 'created_at': now});
     } catch (e) {
       print('[WS] Error sending message: $e');
       client.emit('message_error', {'error': e.toString()});
@@ -172,7 +212,8 @@ class ChatWebSocketController extends Controller {
 
     try {
       final userRows = await connection!.select(
-        'SELECT name FROM users WHERE id::text = \$1 LIMIT 1', [userId],
+        'SELECT name FROM users WHERE id::text = \$1 LIMIT 1',
+        [userId],
       );
       final userName = userRows.isNotEmpty ? userRows.first['name'] : '';
 
@@ -191,7 +232,14 @@ class ChatWebSocketController extends Controller {
       } else {
         await connection!.statement(
           'INSERT INTO message_reactions (id, message_id, user_id, user_name, emoji, created_at) VALUES (\$1,\$2,\$3,\$4,\$5,\$6)',
-          [const Uuid().v4(), msgId, userId, userName, emoji, DateTime.now().toIso8601String()],
+          [
+            const Uuid().v4(),
+            msgId,
+            userId,
+            userName,
+            emoji,
+            DateTime.now().toIso8601String()
+          ],
         );
         action = 'added';
       }
@@ -220,11 +268,14 @@ class ChatWebSocketController extends Controller {
 
     try {
       final rows = await connection!.select(
-        'SELECT from_user_id, created_at FROM chats WHERE id = \$1 LIMIT 1', [msgId],
+        'SELECT from_user_id, created_at FROM chats WHERE id = \$1 LIMIT 1',
+        [msgId],
       );
-      if (rows.isEmpty || rows.first['from_user_id'] != userId) return;
+      if (rows.isEmpty || rows.first['from_user_id']?.toString().trim() != userId) return;
 
-      final createdAt = DateTime.tryParse(rows.first['created_at'].toString()) ?? DateTime.now();
+      final createdAt =
+          DateTime.tryParse(rows.first['created_at'].toString()) ??
+              DateTime.now();
       if (DateTime.now().difference(createdAt).inMinutes > 5) {
         client.emit('message_error', {'error': 'Edit window expired'});
         return;
@@ -257,9 +308,10 @@ class ChatWebSocketController extends Controller {
 
     try {
       final rows = await connection!.select(
-        'SELECT from_user_id FROM chats WHERE id = \$1 LIMIT 1', [msgId],
+        'SELECT from_user_id FROM chats WHERE id = \$1 LIMIT 1',
+        [msgId],
       );
-      if (rows.isEmpty || rows.first['from_user_id'] != userId) return;
+      if (rows.isEmpty || rows.first['from_user_id']?.toString().trim() != userId) return;
 
       await connection!.statement(
         'UPDATE chats SET is_deleted = 1, content = NULL, updated_at = \$1 WHERE id = \$2',

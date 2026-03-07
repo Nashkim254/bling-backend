@@ -151,7 +151,7 @@ class ChallengesController extends Controller {
   }
 
   /// POST /api/challenges/:id/participate  (authenticated)
-  Future<Response> participate(Request request) async {
+  Future<Response> participate(Request request, [dynamic _]) async {
     final challengeId = request.params()['id'] as String? ?? '';
     final authUserId = request.input('auth_user_id') as String? ?? '';
 

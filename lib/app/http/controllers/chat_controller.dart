@@ -178,7 +178,7 @@ class ChatController extends Controller {
   }
 
   /// DELETE /api/chats/:id  — delete conversation (removes member entry)
-  Future<Response> deleteConversation(Request request) async {
+  Future<Response> deleteConversation(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
@@ -191,7 +191,7 @@ class ChatController extends Controller {
   }
 
   /// POST /api/chats/:id/pin
-  Future<Response> pinConversation(Request request) async {
+  Future<Response> pinConversation(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
@@ -204,7 +204,7 @@ class ChatController extends Controller {
   }
 
   /// POST /api/chats/:id/unpin
-  Future<Response> unpinConversation(Request request) async {
+  Future<Response> unpinConversation(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
@@ -217,7 +217,7 @@ class ChatController extends Controller {
   }
 
   /// POST /api/chats/:id/archive
-  Future<Response> archiveConversation(Request request) async {
+  Future<Response> archiveConversation(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
@@ -230,7 +230,7 @@ class ChatController extends Controller {
   }
 
   /// POST /api/chats/:id/unarchive
-  Future<Response> unarchiveConversation(Request request) async {
+  Future<Response> unarchiveConversation(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
@@ -243,7 +243,7 @@ class ChatController extends Controller {
   }
 
   /// POST /api/chats/:id/read  — mark all messages in conversation as read
-  Future<Response> markConversationRead(Request request) async {
+  Future<Response> markConversationRead(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
@@ -262,7 +262,7 @@ class ChatController extends Controller {
   // ── Messages ─────────────────────────────────────────────────────────────
 
   /// GET /api/chats/:id/messages?page=&limit=
-  Future<Response> getMessages(Request request) async {
+  Future<Response> getMessages(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
@@ -317,6 +317,7 @@ class ChatController extends Controller {
           'id': mid,
           'conversation_id': convId,
           'from_user_id': m['from_user_id'],
+          'is_mine': m['from_user_id']?.toString().trim() == me,
           'sender_name': m['sender_name'],
           'sender_username': m['sender_username'],
           'sender_avatar': m['sender_avatar'],
@@ -344,7 +345,7 @@ class ChatController extends Controller {
 
   /// POST /api/chats/:id/messages  — send message to conversation
   /// Body: { content?, message_type?, file_url?, file_name?, file_size?, reply_to_id? }
-  Future<Response> sendMessage(Request request) async {
+  Future<Response> sendMessage(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
@@ -392,7 +393,7 @@ class ChatController extends Controller {
   }
 
   /// DELETE /api/messages/:id  — soft delete message
-  Future<Response> deleteMessage(Request request) async {
+  Future<Response> deleteMessage(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final msgId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
@@ -401,7 +402,7 @@ class ChatController extends Controller {
       'SELECT from_user_id, conversation_id FROM chats WHERE id = \$1 LIMIT 1', [msgId],
     );
     if (rows.isEmpty) return Response.json({'message': 'Not found'}, 404);
-    if (rows.first['from_user_id'] != me) {
+    if (rows.first['from_user_id']?.toString().trim() != me) {
       return Response.json({'message': 'Forbidden'}, 403);
     }
 
@@ -417,7 +418,7 @@ class ChatController extends Controller {
   }
 
   /// PUT /api/messages/:id  — edit message (5-min window)
-  Future<Response> editMessage(Request request) async {
+  Future<Response> editMessage(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final msgId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
@@ -429,7 +430,7 @@ class ChatController extends Controller {
       'SELECT from_user_id, created_at, conversation_id FROM chats WHERE id = \$1 LIMIT 1', [msgId],
     );
     if (rows.isEmpty) return Response.json({'message': 'Not found'}, 404);
-    if (rows.first['from_user_id'] != me) return Response.json({'message': 'Forbidden'}, 403);
+    if (rows.first['from_user_id']?.toString().trim() != me) return Response.json({'message': 'Forbidden'}, 403);
 
     final createdAt = DateTime.tryParse(rows.first['created_at'].toString()) ?? DateTime.now();
     if (DateTime.now().difference(createdAt).inMinutes > 5) {
@@ -451,7 +452,7 @@ class ChatController extends Controller {
   }
 
   /// POST /api/messages/:id/react  — add or remove emoji reaction (toggle)
-  Future<Response> reactToMessage(Request request) async {
+  Future<Response> reactToMessage(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final msgId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);

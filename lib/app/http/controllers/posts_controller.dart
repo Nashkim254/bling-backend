@@ -58,7 +58,7 @@ class PostsController extends Controller {
           .selectRaw(
               'COALESCE(COUNT(DISTINCT comments.id), 0) AS comment_count, '
               'COALESCE(COUNT(DISTINCT likes.id), 0) AS like_count, '
-              'posts.hashtags::TEXT AS extracted_hashtags')
+              "COALESCE(MIN(posts.hashtags::TEXT), '[]') AS extracted_hashtags")
           .leftJoin('users', 'users.id', '=', 'posts.user_id')
           .leftJoin('comments', 'comments.post_id', '=', 'posts.id')
           .leftJoin('likes', 'likes.post_id', '=', 'posts.id')
@@ -77,7 +77,6 @@ class PostsController extends Controller {
             'posts.image_url',
             'posts.is_active',
             'posts.created_at',
-            'posts.hashtags',
             'users.name',
             'users.username',
             'users.avatar',
@@ -162,7 +161,7 @@ class PostsController extends Controller {
           .selectRaw(
               'COALESCE(COUNT(DISTINCT comments.id), 0) AS comment_count, '
               'COALESCE(COUNT(DISTINCT likes.id), 0) AS like_count, '
-              'posts.hashtags::TEXT AS extracted_hashtags')
+              "COALESCE(MIN(posts.hashtags::TEXT), '[]') AS extracted_hashtags")
           .leftJoin('comments', 'comments.post_id', '=', 'posts.id')
           .leftJoin('likes', 'likes.post_id', '=', 'posts.id')
           .where('posts.user_id', '=', userId)
@@ -175,7 +174,6 @@ class PostsController extends Controller {
             'posts.image_url',
             'posts.is_active',
             'posts.created_at',
-            'posts.hashtags',
           ])
           .orderBy('posts.created_at', 'DESC')
           .paginate(limit, page);
@@ -281,7 +279,7 @@ class PostsController extends Controller {
   }
 
   /// DELETE /api/posts/:id  (authenticated, own post only)
-  Future<Response> deletePost(Request request) async {
+  Future<Response> deletePost(Request request, [dynamic _]) async {
     final postId = request.params()['id'] as String? ?? '';
     final authUserId = request.input('auth_user_id') as String? ?? '';
 
@@ -306,7 +304,7 @@ class PostsController extends Controller {
   }
 
   /// POST /api/posts/:id/like  (authenticated) - toggle like
-  Future<Response> toggleLike(Request request) async {
+  Future<Response> toggleLike(Request request, [dynamic _]) async {
     final postId = request.params()['id'] as String? ?? '';
     final authUserId = request.input('auth_user_id') as String? ?? '';
 
@@ -376,7 +374,7 @@ class PostsController extends Controller {
   }
 
   /// POST /api/posts/:id/comment  (authenticated)
-  Future<Response> addComment(Request request) async {
+  Future<Response> addComment(Request request, [dynamic _]) async {
     request.validate({
       'content': 'required|string',
     }, {
@@ -452,7 +450,7 @@ class PostsController extends Controller {
   }
 
   /// GET /api/posts/:id/comments
-  Future<Response> getComments(Request request) async {
+  Future<Response> getComments(Request request, [dynamic _]) async {
     final postId = request.params()['id'] as String? ?? '';
     final authUserId = request.input('auth_user_id') as String? ?? '';
     final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
@@ -559,7 +557,7 @@ class PostsController extends Controller {
   }
 
   /// GET /api/posts/hashtag/:tag  (public)
-  Future<Response> getPostsByHashtag(Request request) async {
+  Future<Response> getPostsByHashtag(Request request, [dynamic _]) async {
     final rawTag = request.params()['tag'] as String? ?? '';
     final authUserId = request.input('auth_user_id') as String? ?? '';
     final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;

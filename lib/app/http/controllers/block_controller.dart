@@ -7,7 +7,7 @@ import 'package:vania/vania.dart';
 
 class BlockController extends Controller {
   /// POST /api/block/:userId  — block a user
-  Future<Response> blockUser(Request request) async {
+  Future<Response> blockUser(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final targetId = request.params()['userId']?.toString() ?? '';
 
@@ -43,7 +43,7 @@ class BlockController extends Controller {
   }
 
   /// DELETE /api/block/:userId  — unblock a user
-  Future<Response> unblockUser(Request request) async {
+  Future<Response> unblockUser(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final targetId = request.params()['userId']?.toString() ?? '';
 

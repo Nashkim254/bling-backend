@@ -6,7 +6,7 @@ import 'package:vania/vania.dart';
 
 class ReportController extends Controller {
   /// POST /api/report/user/:userId
-  Future<Response> reportUser(Request request) async {
+  Future<Response> reportUser(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final targetId = request.params()['userId']?.toString() ?? '';
     final reason = request.body['reason']?.toString() ?? '';
@@ -45,7 +45,7 @@ class ReportController extends Controller {
   }
 
   /// POST /api/report/post/:postId
-  Future<Response> reportPost(Request request) async {
+  Future<Response> reportPost(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final postId = request.params()['postId']?.toString() ?? '';
     final reason = request.body['reason']?.toString() ?? '';

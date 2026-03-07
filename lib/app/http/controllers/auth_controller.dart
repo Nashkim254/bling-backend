@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:bling/app/models/block_model.dart';
 import 'package:bling/app/models/follow.dart';
 import 'package:bling/app/models/posts.dart';
@@ -144,19 +145,62 @@ class AuthController extends Controller {
       'refresh_token': refreshToken,
       'expiry': DateTime.now().add(const Duration(hours: 24)).toIso8601String(),
       'user': {
-        'id': user['id'],
-        'name': user['name'],
-        'username': user['username'],
-        'email': user['email'],
-        'avatar': user['avatar'],
-        'cover_image': user['cover_image'],
-        'bio': user['bio'],
-        'account_type': user['account_type'],
+        'id': user['id']?.toString(),
+        'name': user['name']?.toString(),
+        'username': user['username']?.toString(),
+        'email': user['email']?.toString(),
+        'avatar': user['avatar']?.toString(),
+        'cover_image': user['cover_image']?.toString(),
+        'bio': user['bio']?.toString(),
+        'account_type': user['account_type']?.toString(),
         'bling_score': user['bling_score'],
         'is_verified': user['is_verified'],
         'bling_balance': blingBalance,
       },
     }, HttpStatus.ok);
+  }
+
+  /// POST /api/auth/refresh
+  Future<Response> refreshToken(Request request) async {
+    final body = request.body;
+    final refreshTokenValue = body['refresh_token'] as String? ?? '';
+    if (refreshTokenValue.isEmpty) {
+      return Response.json({'message': 'Refresh token required'}, 400);
+    }
+
+    try {
+      // Validate the refresh token (it's a JWT signed with the same secret)
+      await Auth().check(refreshTokenValue, isCustomToken: true);
+      final userId = Auth().id()?.toString() ?? '';
+      if (userId.isEmpty) {
+        return Response.json({'message': 'Invalid refresh token'}, 401);
+      }
+
+      final user = await User().query().where('id', '=', userId).first();
+      if (user == null) {
+        return Response.json({'message': 'User not found'}, 401);
+      }
+
+      user['created_at'] = user['created_at'].toIso8601String();
+      user['updated_at'] = user['updated_at'].toIso8601String();
+
+      final auth = Auth().login(user);
+      final token = await auth.createToken(
+        expiresIn: const Duration(hours: 24),
+        withRefreshToken: true,
+      );
+
+      return Response.json({
+        'token': token['access_token'],
+        'refresh_token': token['refresh_token'],
+        'expiry':
+            DateTime.now().add(const Duration(hours: 24)).toIso8601String(),
+      }, HttpStatus.ok);
+    } on JWTExpiredException {
+      return Response.json({'message': 'Refresh token expired, please login again'}, 401);
+    } catch (e) {
+      return Response.json({'message': 'Invalid refresh token'}, 401);
+    }
   }
 
   /// GET /api/user/profile  (authenticated)
@@ -236,7 +280,7 @@ class AuthController extends Controller {
   }
 
   /// GET /api/users/:id
-  Future<Response> getUserById(Request request) async {
+  Future<Response> getUserById(Request request, [dynamic _]) async {
     final userId = request.params()['id'] as String? ?? '';
     final authUserId = request.input('auth_user_id') as String? ?? '';
 
@@ -316,57 +360,69 @@ class AuthController extends Controller {
 
   /// GET /api/users?search=&page=&limit=
   Future<Response> getUsers(Request request) async {
-    final search = request.input('search') as String? ?? '';
-    final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
-    final limit =
-        int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
-    final authUserId = request.input('auth_user_id') as String? ?? '';
+    try {
+      final search = (request.input('search') as String? ?? '').trim();
+      final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
+      final limit =
+          int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
+      final authUserId = request.input('auth_user_id') as String? ?? '';
 
-    // Fetch IDs that auth user has blocked or is blocked by
-    List<String> excludedIds = [];
-    if (authUserId.isNotEmpty) {
-      final blockedByMe = await BlockModel()
-          .query()
-          .select(['blocked_user_id'])
-          .where('user_id', '=', authUserId)
-          .get();
-      final blockedMe = await BlockModel()
-          .query()
-          .select(['user_id'])
-          .where('blocked_user_id', '=', authUserId)
-          .get();
-      excludedIds = [
-        ...(blockedByMe as List).map((r) => r['blocked_user_id'].toString()),
-        ...(blockedMe as List).map((r) => r['user_id'].toString()),
-      ];
+      // Fetch IDs that auth user has blocked or is blocked by
+      List<String> excludedIds = [];
+      if (authUserId.isNotEmpty) {
+        final blockedByMe = await BlockModel()
+            .query()
+            .select(['blocked_user_id'])
+            .where('user_id', '=', authUserId)
+            .get();
+        final blockedMe = await BlockModel()
+            .query()
+            .select(['user_id'])
+            .where('blocked_user_id', '=', authUserId)
+            .get();
+        excludedIds = [
+          ...(blockedByMe as List).map((r) => r['blocked_user_id'].toString()),
+          ...(blockedMe as List).map((r) => r['user_id'].toString()),
+        ];
+      }
+
+      var query = User().query().select([
+        'id',
+        'name',
+        'username',
+        'avatar',
+        'is_verified'
+      ]).whereNull('deleted_at');
+
+      if (search.isNotEmpty) {
+        query = query.whereRaw(
+            '(name ILIKE \'%$search%\' OR username ILIKE \'%$search%\')');
+      }
+
+      if (authUserId.isNotEmpty) {
+        query = query.where('id', '!=', authUserId);
+      }
+
+      for (final id in excludedIds) {
+        query = query.where('id', '!=', id);
+      }
+
+      final offset = (page - 1) * limit;
+      final data = await query.orderBy('name', 'ASC').limit(limit).offset(offset).get();
+
+      return Response.json({
+        'users': {
+          'data': data,
+          'page': page,
+          'limit': limit,
+        }
+      }, HttpStatus.ok);
+    } catch (e) {
+      print('[getUsers] ERROR: $e');
+      return Response.json(
+          {'message': 'Error fetching users', 'error': e.toString()},
+          HttpStatus.internalServerError);
     }
-
-    var query = User().query().select([
-      'id',
-      'name',
-      'username',
-      'avatar',
-      'bling_score',
-      'is_verified'
-    ]).where('status', '=', 'active');
-
-    if (search.isNotEmpty) {
-      query = query.whereRaw(
-          '(name ILIKE \'%$search%\' OR username ILIKE \'%$search%\')');
-    }
-
-    if (authUserId.isNotEmpty) {
-      query = query.where('id', '!=', authUserId);
-    }
-
-    for (final id in excludedIds) {
-      query = query.where('id', '!=', id);
-    }
-
-    final result =
-        await query.orderBy('bling_score', 'DESC').paginate(limit, page);
-
-    return Response.json({'users': result}, HttpStatus.ok);
   }
 
   /// PUT /api/user/fcm-token  (authenticated)
@@ -407,6 +463,37 @@ class AuthController extends Controller {
     });
 
     return Response.json({'message': 'Location updated'}, 200);
+  }
+
+  /// POST /api/auth/reset-password  (public)
+  /// Body: { email, password }
+  /// The OTP must have been verified already (OTP is deleted on verify).
+  Future<Response> resetPassword(Request request) async {
+    final email = (request.input('email')?.toString() ?? '').trim().toLowerCase();
+    final password = (request.input('password')?.toString() ?? '').trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      return Response.json({'message': 'Email and password are required'}, 422);
+    }
+    if (password.length < 6) {
+      return Response.json({'message': 'Password must be at least 6 characters'}, 422);
+    }
+
+    final users = await connection!.select(
+      'SELECT id FROM users WHERE email = \$1 AND deleted_at IS NULL LIMIT 1',
+      [email],
+    );
+    if (users.isEmpty) {
+      return Response.json({'message': 'No account found with that email'}, 404);
+    }
+
+    final hashed = Hash().make(password);
+    await User().query().where('email', '=', email).update({
+      'password': hashed,
+      'updated_at': DateTime.now().toIso8601String(),
+    });
+
+    return Response.json({'message': 'Password reset successfully'}, 200);
   }
 
   /// GET /api/users/nearby?radius=20  (authenticated)

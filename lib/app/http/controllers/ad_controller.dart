@@ -76,7 +76,7 @@ class AdController extends Controller {
 
   /// POST /api/ads/:id/impression  (authenticated)
   /// Records an impression and deducts CPM cost from ad budget.
-  Future<Response> recordImpression(Request request) async {
+  Future<Response> recordImpression(Request request, [dynamic _]) async {
     final adId = request.params()['id'] as String? ?? '';
     final userId = request.input('auth_user_id')?.toString() ?? '';
     if (adId.isEmpty || userId.isEmpty) {
@@ -122,7 +122,7 @@ class AdController extends Controller {
   // ─── Click tracking ──────────────────────────────────────────────────────
 
   /// POST /api/ads/:id/click  (authenticated)
-  Future<Response> recordClick(Request request) async {
+  Future<Response> recordClick(Request request, [dynamic _]) async {
     final adId = request.params()['id'] as String? ?? '';
     final userId = request.input('auth_user_id')?.toString() ?? '';
     if (adId.isEmpty || userId.isEmpty) {
@@ -285,7 +285,7 @@ class AdController extends Controller {
 
   /// PUT /api/ads/:id  (authenticated)
   /// Body: { status: 'active' | 'paused' }
-  Future<Response> updateAd(Request request) async {
+  Future<Response> updateAd(Request request, [dynamic _]) async {
     final advertiserId = request.input('auth_user_id')?.toString() ?? '';
     final adId = request.params()['id'] as String? ?? '';
     if (advertiserId.isEmpty) {
