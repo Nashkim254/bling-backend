@@ -11,7 +11,7 @@ import 'package:vania/vania.dart';
 class FollowController extends Controller {
   /// POST /api/follow/:userId  (authenticated)
   Future<Response> follow(Request request, [dynamic _]) async {
-    final followingId = request.params()['userId'] as String? ?? '';
+    final followingId = request.params()['id'] as String? ?? '';
     final authUserId = request.input('auth_user_id') as String? ?? '';
 
     if (authUserId.isEmpty) {
@@ -72,7 +72,7 @@ class FollowController extends Controller {
 
   /// DELETE /api/follow/:userId  (authenticated)
   Future<Response> unfollow(Request request, [dynamic _]) async {
-    final followingId = request.params()['userId'] as String? ?? '';
+    final followingId = request.params()['id'] as String? ?? '';
     final authUserId = request.input('auth_user_id') as String? ?? '';
 
     if (authUserId.isEmpty) {

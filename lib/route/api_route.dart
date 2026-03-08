@@ -52,12 +52,14 @@ class ApiRoute implements Route {
       Router.get('/feed', postsController.getFeed);
       Router.get('/posts', postsController.getPosts);
       Router.post('/posts', postsController.createPost);
+      Router.get('/posts/{id}', postsController.getPost);
       Router.delete('/posts/{id}', postsController.deletePost);
       Router.post('/posts/{id}/like', postsController.toggleLike);
       Router.post('/posts/{id}/comment', postsController.addComment);
       Router.get('/posts/{id}/comments', postsController.getComments);
 
       // Challenges
+      Router.get('/challenges/{id}', challengesController.getChallenge);
       Router.post('/challenges', challengesController.createChallenge);
       Router.post('/challenges/{id}/participate', challengesController.participate);
 
@@ -69,8 +71,8 @@ class ApiRoute implements Route {
       Router.post('/bling/transfer', walletController.transferBling);
 
       // Follow
-      Router.post('/follow/{userId}', followController.follow);
-      Router.delete('/follow/{userId}', followController.unfollow);
+      Router.post('/follow/{id}', followController.follow);
+      Router.delete('/follow/{id}', followController.unfollow);
       Router.get('/user/followers', followController.getFollowers);
       Router.get('/user/following', followController.getFollowing);
 
@@ -89,13 +91,13 @@ class ApiRoute implements Route {
       Router.get('/leaderboard/me', leaderboardController.getLeaderboard);
 
       // Block
-      Router.post('/block/{userId}', blockController.blockUser);
-      Router.delete('/block/{userId}', blockController.unblockUser);
+      Router.post('/block/{id}', blockController.blockUser);
+      Router.delete('/block/{id}', blockController.unblockUser);
       Router.get('/blocks', blockController.listBlocked);
 
       // Report
-      Router.post('/report/user/{userId}', reportController.reportUser);
-      Router.post('/report/post/{postId}', reportController.reportPost);
+      Router.post('/report/user/{id}', reportController.reportUser);
+      Router.post('/report/post/{id}', reportController.reportPost);
 
       // Account management
       Router.delete('/account', accountController.deleteAccount);

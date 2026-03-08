@@ -556,6 +556,62 @@ class PostsController extends Controller {
     }
   }
 
+  /// GET /api/posts/:id  — single post detail (authenticated)
+  Future<Response> getPost(Request request, [dynamic _]) async {
+    final postId = request.params()['id'] as String? ?? '';
+    final authUserId = request.input('auth_user_id') as String? ?? '';
+
+    try {
+      final rows = await connection!.select('''
+        SELECT p.id, p.user_id, p.caption, p.post_type, p.image_url,
+               p.is_active, p.created_at, p.hashtags::TEXT AS extracted_hashtags,
+               u.name AS user_name, u.username AS user_username,
+               u.avatar AS user_avatar, u.is_verified AS user_is_verified,
+               COALESCE((SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id::text), 0) AS comment_count,
+               COALESCE((SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id::text), 0) AS like_count
+        FROM posts p
+        JOIN users u ON u.id = p.user_id
+        WHERE p.id::text = \$1 AND p.is_active = 1
+      ''', [postId]);
+
+      if (rows.isEmpty) return Response.json({'message': 'Not found'}, 404);
+
+      final p = rows.first;
+      bool isLiked = false;
+      if (authUserId.isNotEmpty) {
+        final liked = await LikesModel()
+            .query()
+            .where('user_id', '=', authUserId)
+            .where('post_id', '=', postId)
+            .first();
+        isLiked = liked != null;
+      }
+
+      return Response.json({
+        'post': {
+          'id': p['id']?.toString(),
+          'user_id': p['user_id']?.toString(),
+          'user_name': p['user_name'],
+          'user_username': p['user_username'],
+          'user_avatar': p['user_avatar'],
+          'user_is_verified': p['user_is_verified'],
+          'caption': p['caption'],
+          'post_type': p['post_type']?.toString().trim(),
+          'image_url': p['image_url'],
+          'is_active': p['is_active'],
+          'created_at': p['created_at'].toString(),
+          'comment_count': p['comment_count'] ?? 0,
+          'like_count': p['like_count'] ?? 0,
+          'extracted_hashtags': p['extracted_hashtags'] ?? '[]',
+          'is_liked': isLiked,
+          'item_type': 'post',
+        }
+      }, 200);
+    } catch (e) {
+      return Response.json({'message': 'Error', 'error': e.toString()}, 500);
+    }
+  }
+
   /// GET /api/posts/hashtag/:tag  (public)
   Future<Response> getPostsByHashtag(Request request, [dynamic _]) async {
     final rawTag = request.params()['tag'] as String? ?? '';

@@ -138,7 +138,7 @@ class ChatController extends Controller {
 
         if (existing.isNotEmpty) {
           return Response.json({
-            'conversation_id': existing.first['id'],
+            'conversation_id': existing.first['id']?.toString(),
             'is_new': false,
           }, HttpStatus.ok);
         }
@@ -572,7 +572,7 @@ class ChatController extends Controller {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   Map<String, dynamic> _formatConversation(Map<String, dynamic> r) => {
-    'id': r['id'],
+    'id': r['id']?.toString(),
     'type': r['type'],
     'name': r['type'] == 'group' ? r['name'] : r['partner_name'],
     'avatar': r['type'] == 'group' ? r['avatar'] : r['partner_avatar'],

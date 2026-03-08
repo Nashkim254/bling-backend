@@ -1,4 +1,3 @@
-import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:vania/vania.dart';
 import 'package:vania/src/websocket/websocket_session.dart';
 import 'package:uuid/uuid.dart';
@@ -271,7 +270,8 @@ class ChatWebSocketController extends Controller {
         'SELECT from_user_id, created_at FROM chats WHERE id = \$1 LIMIT 1',
         [msgId],
       );
-      if (rows.isEmpty || rows.first['from_user_id']?.toString().trim() != userId) return;
+      if (rows.isEmpty ||
+          rows.first['from_user_id']?.toString().trim() != userId) return;
 
       final createdAt =
           DateTime.tryParse(rows.first['created_at'].toString()) ??
@@ -311,7 +311,8 @@ class ChatWebSocketController extends Controller {
         'SELECT from_user_id FROM chats WHERE id = \$1 LIMIT 1',
         [msgId],
       );
-      if (rows.isEmpty || rows.first['from_user_id']?.toString().trim() != userId) return;
+      if (rows.isEmpty ||
+          rows.first['from_user_id']?.toString().trim() != userId) return;
 
       await connection!.statement(
         'UPDATE chats SET is_deleted = 1, content = NULL, updated_at = \$1 WHERE id = \$2',
