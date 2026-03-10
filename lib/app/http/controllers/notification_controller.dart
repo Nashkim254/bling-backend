@@ -16,11 +16,14 @@ class NotificationController extends Controller {
     final limit =
         int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
 
+    final offset = (page - 1) * limit;
     final notifications = await NotificationModel()
         .query()
         .where('user_id', '=', authUserId)
         .orderBy('created_at', 'DESC')
-        .paginate(limit, page);
+        .limit(limit)
+        .offset(offset)
+        .get();
 
     // Count unread
     final unreadCount = await NotificationModel()
