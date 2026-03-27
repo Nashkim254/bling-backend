@@ -17,6 +17,7 @@ class CreatePostsTable extends Migration {
       integer('reposts', defaultValue: 0);
       integer('is_active', defaultValue: 1);
       string('image_url', length: 300);
+      json('media', nullable: true);
       string('thumbnail_url', length: 500, nullable: true);
       string('video_url', length: 500, nullable: true);
       string('media_kind', length: 20, defaultValue: 'image');

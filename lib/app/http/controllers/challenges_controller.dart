@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:bling/app/models/challenge_entry.dart';
@@ -41,7 +42,8 @@ class ChallengesController extends Controller {
             'users.is_verified as user_is_verified',
           ])
           .selectRaw(
-              'COALESCE(COUNT(DISTINCT challenge_entries.id), 0) AS entry_count')
+              'COALESCE(COUNT(DISTINCT challenge_entries.id), 0) AS entry_count, '
+              "COALESCE(MIN(challenges.media::TEXT), '[]') AS media")
           .leftJoin('users', 'users.id', '=', 'challenges.user_id')
           .leftJoin('challenge_entries', 'challenge_entries.challenge_id', '=',
               'challenges.id')
@@ -94,6 +96,16 @@ class ChallengesController extends Controller {
           'title': ch['title'],
           'description': ch['description'],
           'hashtags': ch['hashtags'],
+          'media': _decodeMediaText(
+            ch['media'],
+            imageUrl: ch['image_url']?.toString() ?? '',
+            thumbnailUrl: ch['thumbnail_url']?.toString() ?? '',
+            videoUrl: ch['video_url']?.toString() ?? '',
+            mediaKind: ch['media_kind']?.toString() ?? 'image',
+            bucket: ch['storage_bucket']?.toString() ?? '',
+            path: ch['storage_path']?.toString() ?? '',
+            mimeType: ch['mime_type']?.toString() ?? '',
+          ),
           'image_url': ch['image_url'],
           'thumbnail_url': ch['thumbnail_url'] ?? '',
           'video_url': ch['video_url'] ?? '',
@@ -134,7 +146,7 @@ class ChallengesController extends Controller {
 
     try {
       final rows = await connection!.select('''
-        SELECT c.id, c.user_id, c.title, c.description, c.hashtags, c.image_url,
+        SELECT c.id, c.user_id, c.title, c.description, c.hashtags, c.image_url, c.media::TEXT AS media,
                c.thumbnail_url, c.video_url, c.media_kind,
                c.storage_bucket, c.storage_path, c.mime_type,
                c.prize_bling, c.is_active, c.ends_at, c.created_at,
@@ -181,6 +193,16 @@ class ChallengesController extends Controller {
           'title': ch['title'],
           'description': ch['description'],
           'hashtags': ch['hashtags'],
+          'media': _decodeMediaText(
+            ch['media'],
+            imageUrl: ch['image_url']?.toString() ?? '',
+            thumbnailUrl: ch['thumbnail_url']?.toString() ?? '',
+            videoUrl: ch['video_url']?.toString() ?? '',
+            mediaKind: ch['media_kind']?.toString() ?? 'image',
+            bucket: ch['storage_bucket']?.toString() ?? '',
+            path: ch['storage_path']?.toString() ?? '',
+            mimeType: ch['mime_type']?.toString() ?? '',
+          ),
           'image_url': ch['image_url'],
           'thumbnail_url': ch['thumbnail_url'] ?? '',
           'video_url': ch['video_url'] ?? '',
@@ -229,6 +251,17 @@ class ChallengesController extends Controller {
     }
 
     try {
+      final media = _normalizeMediaInput(request.body['media']);
+      final legacyMedia = _legacyFieldsFromMedia(
+        media,
+        fallbackImageUrl: request.body['image_url']?.toString() ?? '',
+        fallbackThumbnailUrl: request.body['thumbnail_url']?.toString() ?? '',
+        fallbackVideoUrl: request.body['video_url']?.toString() ?? '',
+        fallbackMediaKind: request.body['media_kind']?.toString() ?? 'image',
+        fallbackBucket: request.body['storage_bucket']?.toString() ?? '',
+        fallbackPath: request.body['storage_path']?.toString() ?? '',
+        fallbackMimeType: request.body['mime_type']?.toString() ?? '',
+      );
       final challengeId = const Uuid().v4();
       final now = DateTime.now().toIso8601String();
 
@@ -238,13 +271,14 @@ class ChallengesController extends Controller {
         'title': request.body['title']?.toString().trim() ?? '',
         'description': request.body['description']?.toString().trim() ?? '',
         'hashtags': request.body['hashtags']?.toString() ?? '',
-        'image_url': request.body['image_url']?.toString() ?? '',
-        'thumbnail_url': request.body['thumbnail_url']?.toString() ?? '',
-        'video_url': request.body['video_url']?.toString() ?? '',
-        'media_kind': request.body['media_kind']?.toString() ?? 'image',
-        'storage_bucket': request.body['storage_bucket']?.toString() ?? '',
-        'storage_path': request.body['storage_path']?.toString() ?? '',
-        'mime_type': request.body['mime_type']?.toString() ?? '',
+        'media': media,
+        'image_url': legacyMedia['image_url'],
+        'thumbnail_url': legacyMedia['thumbnail_url'],
+        'video_url': legacyMedia['video_url'],
+        'media_kind': legacyMedia['media_kind'],
+        'storage_bucket': legacyMedia['storage_bucket'],
+        'storage_path': legacyMedia['storage_path'],
+        'mime_type': legacyMedia['mime_type'],
         'prize_bling':
             int.tryParse(request.body['prize_bling']?.toString() ?? '0') ?? 0,
         'is_active': 1,
@@ -330,6 +364,121 @@ class ChallengesController extends Controller {
       'message': 'Joined challenge successfully',
       'entry_id': entryId,
     }, 201);
+  }
+
+  List<Map<String, dynamic>> _normalizeMediaInput(dynamic rawMedia) {
+    if (rawMedia is! List) return [];
+
+    return rawMedia
+        .whereType<Map>()
+        .map((entry) =>
+            entry.map((key, value) => MapEntry(key.toString(), value)))
+        .map((media) {
+          final kind = media['kind']?.toString().trim().isNotEmpty == true
+              ? media['kind'].toString().trim()
+              : media['media_kind']?.toString().trim() ?? 'image';
+          final url = media['url']?.toString().trim().isNotEmpty == true
+              ? media['url'].toString().trim()
+              : media['media_url']?.toString().trim() ?? '';
+          final thumbnailUrl =
+              media['thumbnail_url']?.toString().trim().isNotEmpty == true
+                  ? media['thumbnail_url'].toString().trim()
+                  : (kind == 'image' ? url : '');
+
+          return {
+            'kind': kind,
+            'url': url,
+            'thumbnail_url': thumbnailUrl,
+            'storage_bucket': media['storage_bucket']?.toString() ??
+                media['bucket']?.toString() ??
+                '',
+            'storage_path': media['storage_path']?.toString() ??
+                media['path']?.toString() ??
+                '',
+            'mime_type': media['mime_type']?.toString() ??
+                media['mimeType']?.toString() ??
+                '',
+            'file_name': media['file_name']?.toString() ??
+                media['fileName']?.toString() ??
+                '',
+          };
+        })
+        .where((media) => (media['url']?.toString() ?? '').isNotEmpty)
+        .toList();
+  }
+
+  Map<String, String> _legacyFieldsFromMedia(
+    List<Map<String, dynamic>> media, {
+    required String fallbackImageUrl,
+    required String fallbackThumbnailUrl,
+    required String fallbackVideoUrl,
+    required String fallbackMediaKind,
+    required String fallbackBucket,
+    required String fallbackPath,
+    required String fallbackMimeType,
+  }) {
+    if (media.isEmpty) {
+      return {
+        'image_url': fallbackImageUrl,
+        'thumbnail_url': fallbackThumbnailUrl,
+        'video_url': fallbackVideoUrl,
+        'media_kind': fallbackMediaKind,
+        'storage_bucket': fallbackBucket,
+        'storage_path': fallbackPath,
+        'mime_type': fallbackMimeType,
+      };
+    }
+
+    final primary = media.first;
+    final kind = primary['kind']?.toString() ?? 'image';
+    final url = primary['url']?.toString() ?? '';
+    final thumbnail = primary['thumbnail_url']?.toString() ?? '';
+
+    return {
+      'image_url': kind == 'image' ? url : '',
+      'thumbnail_url':
+          thumbnail.isNotEmpty ? thumbnail : (kind == 'image' ? url : ''),
+      'video_url': kind == 'video' ? url : '',
+      'media_kind': kind,
+      'storage_bucket': primary['storage_bucket']?.toString() ?? '',
+      'storage_path': primary['storage_path']?.toString() ?? '',
+      'mime_type': primary['mime_type']?.toString() ?? '',
+    };
+  }
+
+  List<Map<String, dynamic>> _decodeMediaText(
+    dynamic rawText, {
+    required String imageUrl,
+    required String thumbnailUrl,
+    required String videoUrl,
+    required String mediaKind,
+    required String bucket,
+    required String path,
+    required String mimeType,
+  }) {
+    if (rawText is String && rawText.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawText);
+        final normalized = _normalizeMediaInput(decoded);
+        if (normalized.isNotEmpty) return normalized;
+      } catch (_) {}
+    }
+
+    final fallbackUrl = mediaKind == 'video' ? videoUrl : imageUrl;
+    if (fallbackUrl.isEmpty) return [];
+
+    return [
+      {
+        'kind': mediaKind,
+        'url': fallbackUrl,
+        'thumbnail_url': thumbnailUrl.isNotEmpty
+            ? thumbnailUrl
+            : (mediaKind == 'image' ? imageUrl : ''),
+        'storage_bucket': bucket,
+        'storage_path': path,
+        'mime_type': mimeType,
+      }
+    ];
   }
 }
 

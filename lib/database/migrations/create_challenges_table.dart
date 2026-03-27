@@ -12,6 +12,7 @@ class CreateChallengesTable extends Migration {
       string('description', length: 500);
       string('hashtags', length: 500, nullable: true);
       string('image_url', length: 500, nullable: true);
+      json('media', nullable: true);
       string('thumbnail_url', length: 500, nullable: true);
       string('video_url', length: 500, nullable: true);
       string('media_kind', length: 20, defaultValue: 'image');

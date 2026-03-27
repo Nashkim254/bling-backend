@@ -5,6 +5,7 @@ class AddMediaColumns extends Migration {
   Future<void> up() async {
     super.up();
     await _addColumns('posts', {
+      'media': 'JSON',
       'thumbnail_url': 'TEXT',
       'video_url': 'TEXT',
       'media_kind': "VARCHAR(20) DEFAULT 'image'",
@@ -14,6 +15,7 @@ class AddMediaColumns extends Migration {
     });
 
     await _addColumns('challenges', {
+      'media': 'JSON',
       'thumbnail_url': 'TEXT',
       'video_url': 'TEXT',
       'media_kind': "VARCHAR(20) DEFAULT 'image'",
@@ -54,6 +56,7 @@ class AddMediaColumns extends Migration {
       'thumbnail_url',
       'video_url',
       'media_kind',
+      'media',
       'storage_bucket',
       'storage_path',
       'mime_type',

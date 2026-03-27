@@ -64,7 +64,8 @@ class PostsController extends Controller {
           .selectRaw(
               'COALESCE(COUNT(DISTINCT comments.id), 0) AS comment_count, '
               'COALESCE(COUNT(DISTINCT likes.id), 0) AS like_count, '
-              "COALESCE(MIN(posts.hashtags::TEXT), '[]') AS extracted_hashtags")
+              "COALESCE(MIN(posts.hashtags::TEXT), '[]') AS extracted_hashtags, "
+              "COALESCE(MIN(posts.media::TEXT), '[]') AS media")
           .leftJoin('users', 'users.id', '=', 'posts.user_id')
           .leftJoin('comments', 'comments.post_id', '=', 'posts.id')
           .leftJoin('likes', 'likes.post_id', '=', 'posts.id')
@@ -116,6 +117,16 @@ class PostsController extends Controller {
           'user_is_verified': post['user_is_verified'],
           'caption': post['caption'],
           'post_type': post['post_type']?.trim(),
+          'media': _decodeMediaText(
+            post['media'],
+            imageUrl: post['image_url']?.toString() ?? '',
+            thumbnailUrl: post['thumbnail_url']?.toString() ?? '',
+            videoUrl: post['video_url']?.toString() ?? '',
+            mediaKind: post['media_kind']?.toString() ?? 'image',
+            bucket: post['storage_bucket']?.toString() ?? '',
+            path: post['storage_path']?.toString() ?? '',
+            mimeType: post['mime_type']?.toString() ?? '',
+          ),
           'image_url': post['image_url'],
           'thumbnail_url': post['thumbnail_url'] ?? '',
           'video_url': post['video_url'] ?? '',
@@ -185,7 +196,8 @@ class PostsController extends Controller {
           .selectRaw(
               'COALESCE(COUNT(DISTINCT comments.id), 0) AS comment_count, '
               'COALESCE(COUNT(DISTINCT likes.id), 0) AS like_count, '
-              "COALESCE(MIN(posts.hashtags::TEXT), '[]') AS extracted_hashtags")
+              "COALESCE(MIN(posts.hashtags::TEXT), '[]') AS extracted_hashtags, "
+              "COALESCE(MIN(posts.media::TEXT), '[]') AS media")
           .leftJoin('comments', 'comments.post_id', '=', 'posts.id')
           .leftJoin('likes', 'likes.post_id', '=', 'posts.id')
           .where('posts.user_id', '=', userId)
@@ -222,6 +234,16 @@ class PostsController extends Controller {
           'user_id': post['user_id'],
           'caption': post['caption'],
           'post_type': post['post_type']?.trim(),
+          'media': _decodeMediaText(
+            post['media'],
+            imageUrl: post['image_url']?.toString() ?? '',
+            thumbnailUrl: post['thumbnail_url']?.toString() ?? '',
+            videoUrl: post['video_url']?.toString() ?? '',
+            mediaKind: post['media_kind']?.toString() ?? 'image',
+            bucket: post['storage_bucket']?.toString() ?? '',
+            path: post['storage_path']?.toString() ?? '',
+            mimeType: post['mime_type']?.toString() ?? '',
+          ),
           'image_url': post['image_url'],
           'thumbnail_url': post['thumbnail_url'] ?? '',
           'video_url': post['video_url'] ?? '',
@@ -274,19 +296,31 @@ class PostsController extends Controller {
       final payload = Map<String, dynamic>.from(request.body);
       final postId = const Uuid().v4();
       final now = DateTime.now().toIso8601String();
+      final media = _normalizeMediaInput(payload['media']);
+      final legacyMedia = _legacyFieldsFromMedia(
+        media,
+        fallbackImageUrl: payload['image_url']?.toString() ?? '',
+        fallbackThumbnailUrl: payload['thumbnail_url']?.toString() ?? '',
+        fallbackVideoUrl: payload['video_url']?.toString() ?? '',
+        fallbackMediaKind: payload['media_kind']?.toString() ?? 'image',
+        fallbackBucket: payload['storage_bucket']?.toString() ?? '',
+        fallbackPath: payload['storage_path']?.toString() ?? '',
+        fallbackMimeType: payload['mime_type']?.toString() ?? '',
+      );
 
       final body = <String, dynamic>{
         'id': postId,
         'user_id': authUserId,
         'caption': payload['caption']?.toString().trim() ?? '',
         'post_type': payload['post_type']?.toString().trim() ?? 'feed',
-        'image_url': payload['image_url']?.toString() ?? '',
-        'thumbnail_url': payload['thumbnail_url']?.toString() ?? '',
-        'video_url': payload['video_url']?.toString() ?? '',
-        'media_kind': payload['media_kind']?.toString() ?? 'image',
-        'storage_bucket': payload['storage_bucket']?.toString() ?? '',
-        'storage_path': payload['storage_path']?.toString() ?? '',
-        'mime_type': payload['mime_type']?.toString() ?? '',
+        'media': media,
+        'image_url': legacyMedia['image_url'],
+        'thumbnail_url': legacyMedia['thumbnail_url'],
+        'video_url': legacyMedia['video_url'],
+        'media_kind': legacyMedia['media_kind'],
+        'storage_bucket': legacyMedia['storage_bucket'],
+        'storage_path': legacyMedia['storage_path'],
+        'mime_type': legacyMedia['mime_type'],
         'is_active': 1,
         'created_at': now,
         'updated_at': now,
@@ -611,7 +645,7 @@ class PostsController extends Controller {
 
     try {
       final rows = await connection!.select('''
-        SELECT p.id, p.user_id, p.caption, p.post_type, p.image_url,
+        SELECT p.id, p.user_id, p.caption, p.post_type, p.image_url, p.media::TEXT AS media,
                p.thumbnail_url, p.video_url, p.media_kind,
                p.storage_bucket, p.storage_path, p.mime_type,
                p.is_active, p.created_at, p.hashtags::TEXT AS extracted_hashtags,
@@ -647,6 +681,16 @@ class PostsController extends Controller {
           'user_is_verified': p['user_is_verified'],
           'caption': p['caption'],
           'post_type': p['post_type']?.toString().trim(),
+          'media': _decodeMediaText(
+            p['media'],
+            imageUrl: p['image_url']?.toString() ?? '',
+            thumbnailUrl: p['thumbnail_url']?.toString() ?? '',
+            videoUrl: p['video_url']?.toString() ?? '',
+            mediaKind: p['media_kind']?.toString() ?? 'image',
+            bucket: p['storage_bucket']?.toString() ?? '',
+            path: p['storage_path']?.toString() ?? '',
+            mimeType: p['mime_type']?.toString() ?? '',
+          ),
           'image_url': p['image_url'],
           'thumbnail_url': p['thumbnail_url'] ?? '',
           'video_url': p['video_url'] ?? '',
@@ -687,7 +731,7 @@ class PostsController extends Controller {
       final offset = (page - 1) * limit;
       // Use JSONB containment to find posts whose hashtags array includes the tag
       final rows = await connection!.select(
-        '''SELECT p.id, p.user_id, p.caption, p.post_type, p.image_url,
+        '''SELECT p.id, p.user_id, p.caption, p.post_type, p.image_url, p.media::TEXT AS media,
                   p.thumbnail_url, p.video_url, p.media_kind,
                   p.storage_bucket, p.storage_path, p.mime_type,
                   p.is_active, p.created_at, p.hashtags::TEXT AS extracted_hashtags,
@@ -726,6 +770,16 @@ class PostsController extends Controller {
           'user_is_verified': p['user_is_verified'],
           'caption': p['caption'],
           'post_type': p['post_type']?.trim(),
+          'media': _decodeMediaText(
+            p['media'],
+            imageUrl: p['image_url']?.toString() ?? '',
+            thumbnailUrl: p['thumbnail_url']?.toString() ?? '',
+            videoUrl: p['video_url']?.toString() ?? '',
+            mediaKind: p['media_kind']?.toString() ?? 'image',
+            bucket: p['storage_bucket']?.toString() ?? '',
+            path: p['storage_path']?.toString() ?? '',
+            mimeType: p['mime_type']?.toString() ?? '',
+          ),
           'image_url': p['image_url'],
           'thumbnail_url': p['thumbnail_url'] ?? '',
           'video_url': p['video_url'] ?? '',
@@ -763,6 +817,121 @@ class PostsController extends Controller {
     final user = await User().query().where('id', '=', userId).first();
     final currentScore = (user?['bling_score'] as int?) ?? 0;
     return currentScore + increment;
+  }
+
+  List<Map<String, dynamic>> _normalizeMediaInput(dynamic rawMedia) {
+    if (rawMedia is! List) return [];
+
+    return rawMedia
+        .whereType<Map>()
+        .map((entry) =>
+            entry.map((key, value) => MapEntry(key.toString(), value)))
+        .map((media) {
+          final kind = media['kind']?.toString().trim().isNotEmpty == true
+              ? media['kind'].toString().trim()
+              : media['media_kind']?.toString().trim() ?? 'image';
+          final url = media['url']?.toString().trim().isNotEmpty == true
+              ? media['url'].toString().trim()
+              : media['media_url']?.toString().trim() ?? '';
+          final thumbnailUrl =
+              media['thumbnail_url']?.toString().trim().isNotEmpty == true
+                  ? media['thumbnail_url'].toString().trim()
+                  : (kind == 'image' ? url : '');
+
+          return {
+            'kind': kind,
+            'url': url,
+            'thumbnail_url': thumbnailUrl,
+            'storage_bucket': media['storage_bucket']?.toString() ??
+                media['bucket']?.toString() ??
+                '',
+            'storage_path': media['storage_path']?.toString() ??
+                media['path']?.toString() ??
+                '',
+            'mime_type': media['mime_type']?.toString() ??
+                media['mimeType']?.toString() ??
+                '',
+            'file_name': media['file_name']?.toString() ??
+                media['fileName']?.toString() ??
+                '',
+          };
+        })
+        .where((media) => (media['url']?.toString() ?? '').isNotEmpty)
+        .toList();
+  }
+
+  Map<String, String> _legacyFieldsFromMedia(
+    List<Map<String, dynamic>> media, {
+    required String fallbackImageUrl,
+    required String fallbackThumbnailUrl,
+    required String fallbackVideoUrl,
+    required String fallbackMediaKind,
+    required String fallbackBucket,
+    required String fallbackPath,
+    required String fallbackMimeType,
+  }) {
+    if (media.isEmpty) {
+      return {
+        'image_url': fallbackImageUrl,
+        'thumbnail_url': fallbackThumbnailUrl,
+        'video_url': fallbackVideoUrl,
+        'media_kind': fallbackMediaKind,
+        'storage_bucket': fallbackBucket,
+        'storage_path': fallbackPath,
+        'mime_type': fallbackMimeType,
+      };
+    }
+
+    final primary = media.first;
+    final kind = primary['kind']?.toString() ?? 'image';
+    final url = primary['url']?.toString() ?? '';
+    final thumbnail = primary['thumbnail_url']?.toString() ?? '';
+
+    return {
+      'image_url': kind == 'image' ? url : '',
+      'thumbnail_url':
+          thumbnail.isNotEmpty ? thumbnail : (kind == 'image' ? url : ''),
+      'video_url': kind == 'video' ? url : '',
+      'media_kind': kind,
+      'storage_bucket': primary['storage_bucket']?.toString() ?? '',
+      'storage_path': primary['storage_path']?.toString() ?? '',
+      'mime_type': primary['mime_type']?.toString() ?? '',
+    };
+  }
+
+  List<Map<String, dynamic>> _decodeMediaText(
+    dynamic rawText, {
+    required String imageUrl,
+    required String thumbnailUrl,
+    required String videoUrl,
+    required String mediaKind,
+    required String bucket,
+    required String path,
+    required String mimeType,
+  }) {
+    if (rawText is String && rawText.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawText);
+        final normalized = _normalizeMediaInput(decoded);
+        if (normalized.isNotEmpty) return normalized;
+      } catch (_) {}
+    }
+
+    final fallbackUrl = mediaKind == 'video' ? videoUrl : imageUrl;
+    if (fallbackUrl.isEmpty) return [];
+
+    return [
+      {
+        'kind': mediaKind,
+        'url': fallbackUrl,
+        'thumbnail_url': thumbnailUrl.isNotEmpty
+            ? thumbnailUrl
+            : (mediaKind == 'image' ? imageUrl : ''),
+        'storage_bucket': bucket,
+        'storage_path': path,
+        'mime_type': mimeType,
+      }
+    ];
   }
 
   Future<void> _notifyFollowers(
