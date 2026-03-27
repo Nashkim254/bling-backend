@@ -113,7 +113,8 @@ class PurchaseController extends Controller {
 
     // ─── Bump bling_score ─────────────────────────────────────────────────
     final user = await User().query().where('id', '=', authUserId).first();
-    final newScore = ((user?['bling_score'] as num?)?.toInt() ?? 0) + blingAmount;
+    final newScore =
+        ((user?['bling_score'] as num?)?.toInt() ?? 0) + blingAmount;
     await User().query().where('id', '=', authUserId).update({
       'bling_score': newScore,
       'updated_at': now,
@@ -230,7 +231,9 @@ class PurchaseController extends Controller {
     final productId = body['product_id'] as String? ?? '';
 
     if (purchaseToken.isEmpty || productId.isEmpty) {
-      return {'error': 'purchase_token and product_id are required for Android'};
+      return {
+        'error': 'purchase_token and product_id are required for Android'
+      };
     }
 
     // Verify product matches package
@@ -246,7 +249,8 @@ class PurchaseController extends Controller {
 
     if (serviceAccountJson.isEmpty) {
       // Dev mode: accept any well-formed purchase token (remove in production)
-      print('[IAP] WARNING: No service account configured — skipping Android verification (dev only)');
+      print(
+          '[IAP] WARNING: No service account configured — skipping Android verification (dev only)');
       return {'transaction_id': 'android_dev_$purchaseToken'};
     }
 
@@ -268,7 +272,9 @@ class PurchaseController extends Controller {
       ).timeout(const Duration(seconds: 15));
 
       if (resp.statusCode != 200) {
-        return {'error': 'Google Play verification failed (${resp.statusCode})'};
+        return {
+          'error': 'Google Play verification failed (${resp.statusCode})'
+        };
       }
 
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
@@ -302,9 +308,8 @@ class PurchaseController extends Controller {
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
       // Build JWT header + claims (unpadded base64url)
-      String b64(String json) => base64Url
-          .encode(utf8.encode(json))
-          .replaceAll('=', '');
+      String b64(String json) =>
+          base64Url.encode(utf8.encode(json)).replaceAll('=', '');
 
       final header = b64(jsonEncode({'alg': 'RS256', 'typ': 'JWT'}));
       final claims = b64(jsonEncode({
@@ -323,8 +328,12 @@ class PurchaseController extends Controller {
 
       // Sign with openssl (available on macOS and most Linux servers)
       final result = await Process.run('openssl', [
-        'dgst', '-sha256', '-sign', keyFile.path,
-        '-out', sigFile.path,
+        'dgst',
+        '-sha256',
+        '-sign',
+        keyFile.path,
+        '-out',
+        sigFile.path,
         dataFile.path,
       ]);
 

@@ -31,8 +31,7 @@ class LeaderboardController extends Controller {
       }
 
       // Verified filter
-      final verifiedClause =
-          verifiedOnly ? 'AND u.is_verified = true' : '';
+      final verifiedClause = verifiedOnly ? 'AND u.is_verified = true' : '';
 
       // Search filter
       final searchClause = search.isNotEmpty
@@ -105,17 +104,19 @@ class LeaderboardController extends Controller {
           'sort_by': sortBy,
           'page': page,
           'my_rank': myRank,
-          'data': leaders.map((l) => {
-                'rank': (l['rank'] as num?)?.toInt(),
-                'id': l['id'],
-                'name': l['name'],
-                'username': l['username'],
-                'avatar': l['avatar'],
-                'is_verified': l['is_verified'],
-                'score': (l['score'] as num?)?.toInt() ?? 0,
-                'bling_balance': (l['bling_balance'] as num?)?.toInt() ?? 0,
-                'is_me': l['id'] == authUserId,
-              }).toList(),
+          'data': leaders
+              .map((l) => {
+                    'rank': (l['rank'] as num?)?.toInt(),
+                    'id': l['id'],
+                    'name': l['name'],
+                    'username': l['username'],
+                    'avatar': l['avatar'],
+                    'is_verified': l['is_verified'],
+                    'score': (l['score'] as num?)?.toInt() ?? 0,
+                    'bling_balance': (l['bling_balance'] as num?)?.toInt() ?? 0,
+                    'is_me': l['id'] == authUserId,
+                  })
+              .toList(),
         }
       }, HttpStatus.ok);
     } catch (e) {

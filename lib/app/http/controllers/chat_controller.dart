@@ -94,9 +94,8 @@ class ChatController extends Controller {
     final body = request.body;
     final type = body['type']?.toString() ?? 'dm';
     final rawMembers = body['member_ids'];
-    final List<String> memberIds = rawMembers is List
-        ? rawMembers.map((e) => e.toString()).toList()
-        : [];
+    final List<String> memberIds =
+        rawMembers is List ? rawMembers.map((e) => e.toString()).toList() : [];
 
     if (memberIds.isEmpty) {
       return Response.json({'message': 'member_ids required'}, 422);
@@ -163,7 +162,9 @@ class ChatController extends Controller {
             convId,
             userId,
             userId == me ? 'admin' : 'member',
-            now, now, now,
+            now,
+            now,
+            now,
           ],
         );
       }
@@ -268,7 +269,8 @@ class ChatController extends Controller {
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
     final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
-    final limit = int.tryParse(request.input('limit')?.toString() ?? '50') ?? 50;
+    final limit =
+        int.tryParse(request.input('limit')?.toString() ?? '50') ?? 50;
 
     try {
       final messages = await connection!.select('''
@@ -371,7 +373,18 @@ class ChatController extends Controller {
           content, message_type, file_url, file_name, file_size, reply_to_id,
           is_read, delivered, is_deleted, created_at, updated_at)
         VALUES (\$1,\$2,\$3,\$3,\$4,\$5,\$6,\$7,\$8,\$9,0,1,0,\$10,\$10)
-      ''', [msgId, convId, me, content, messageType, fileUrl, fileName, fileSize, replyToId, now]);
+      ''', [
+        msgId,
+        convId,
+        me,
+        content,
+        messageType,
+        fileUrl,
+        fileName,
+        fileSize,
+        replyToId,
+        now
+      ]);
 
       // Update conversation last_message
       await connection!.statement(
@@ -386,7 +399,8 @@ class ChatController extends Controller {
         content: content.isNotEmpty ? content : '📎 Attachment',
       ));
 
-      return Response.json({'message_id': msgId, 'created_at': now}, HttpStatus.ok);
+      return Response.json(
+          {'message_id': msgId, 'created_at': now}, HttpStatus.ok);
     } catch (e) {
       return Response.json({'message': 'Error', 'error': e.toString()}, 500);
     }
@@ -399,7 +413,8 @@ class ChatController extends Controller {
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
     final rows = await connection!.select(
-      'SELECT from_user_id, conversation_id FROM chats WHERE id = \$1 LIMIT 1', [msgId],
+      'SELECT from_user_id, conversation_id FROM chats WHERE id = \$1 LIMIT 1',
+      [msgId],
     );
     if (rows.isEmpty) return Response.json({'message': 'Not found'}, 404);
     if (rows.first['from_user_id']?.toString().trim() != me) {
@@ -424,15 +439,19 @@ class ChatController extends Controller {
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
     final newContent = request.body['content']?.toString() ?? '';
-    if (newContent.isEmpty) return Response.json({'message': 'Content required'}, 422);
+    if (newContent.isEmpty)
+      return Response.json({'message': 'Content required'}, 422);
 
     final rows = await connection!.select(
-      'SELECT from_user_id, created_at, conversation_id FROM chats WHERE id = \$1 LIMIT 1', [msgId],
+      'SELECT from_user_id, created_at, conversation_id FROM chats WHERE id = \$1 LIMIT 1',
+      [msgId],
     );
     if (rows.isEmpty) return Response.json({'message': 'Not found'}, 404);
-    if (rows.first['from_user_id']?.toString().trim() != me) return Response.json({'message': 'Forbidden'}, 403);
+    if (rows.first['from_user_id']?.toString().trim() != me)
+      return Response.json({'message': 'Forbidden'}, 403);
 
-    final createdAt = DateTime.tryParse(rows.first['created_at'].toString()) ?? DateTime.now();
+    final createdAt = DateTime.tryParse(rows.first['created_at'].toString()) ??
+        DateTime.now();
     if (DateTime.now().difference(createdAt).inMinutes > 5) {
       return Response.json({'message': 'Edit window expired (5 min)'}, 403);
     }
@@ -462,7 +481,8 @@ class ChatController extends Controller {
 
     // Get user name
     final userRows = await connection!.select(
-      'SELECT name FROM users WHERE id::text = \$1 LIMIT 1', [me],
+      'SELECT name FROM users WHERE id::text = \$1 LIMIT 1',
+      [me],
     );
     final userName = userRows.isNotEmpty ? userRows.first['name'] : '';
 
@@ -474,7 +494,8 @@ class ChatController extends Controller {
 
     // Get conversation_id for WS broadcast
     final msgRows = await connection!.select(
-      'SELECT conversation_id FROM chats WHERE id = \$1 LIMIT 1', [msgId],
+      'SELECT conversation_id FROM chats WHERE id = \$1 LIMIT 1',
+      [msgId],
     );
     final convId = msgRows.isNotEmpty ? msgRows.first['conversation_id'] : '';
 
@@ -493,7 +514,14 @@ class ChatController extends Controller {
     } else {
       await connection!.statement(
         'INSERT INTO message_reactions (id, message_id, user_id, user_name, emoji, created_at) VALUES (\$1,\$2,\$3,\$4,\$5,\$6)',
-        [const Uuid().v4(), msgId, me, userName, emoji, DateTime.now().toIso8601String()],
+        [
+          const Uuid().v4(),
+          msgId,
+          me,
+          userName,
+          emoji,
+          DateTime.now().toIso8601String()
+        ],
       );
       return Response.json({
         'action': 'added',
@@ -516,9 +544,11 @@ class ChatController extends Controller {
     try {
       final base64Data = request.body['data']?.toString() ?? '';
       final originalName = request.body['file_name']?.toString() ?? 'file';
-      final contentType = request.body['content_type']?.toString() ?? 'application/octet-stream';
+      final contentType = request.body['content_type']?.toString() ??
+          'application/octet-stream';
 
-      if (base64Data.isEmpty) return Response.json({'message': 'No file data'}, 422);
+      if (base64Data.isEmpty)
+        return Response.json({'message': 'No file data'}, 422);
 
       final bytes = base64Decode(base64Data);
       final ext = _extFromContentType(contentType, originalName);
@@ -536,10 +566,10 @@ class ChatController extends Controller {
         'file_size': bytes.length,
       }, HttpStatus.ok);
     } catch (e) {
-      return Response.json({'message': 'Upload failed', 'error': e.toString()}, 500);
+      return Response.json(
+          {'message': 'Upload failed', 'error': e.toString()}, 500);
     }
   }
-
 
   Future<void> _notifyChatMembers({
     required String convId,
@@ -547,9 +577,11 @@ class ChatController extends Controller {
     required String content,
   }) async {
     try {
-      final sender = await connection!.select(
-        'SELECT name FROM users WHERE id = \$1', [senderId]);
-      final senderName = sender.isNotEmpty ? sender.first['name'] as String? ?? 'Someone' : 'Someone';
+      final sender = await connection!
+          .select('SELECT name FROM users WHERE id = \$1', [senderId]);
+      final senderName = sender.isNotEmpty
+          ? sender.first['name'] as String? ?? 'Someone'
+          : 'Someone';
 
       final members = await connection!.select(
         'SELECT user_id FROM conversation_members WHERE conversation_id = \$1 AND user_id != \$2',
@@ -572,24 +604,25 @@ class ChatController extends Controller {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   Map<String, dynamic> _formatConversation(Map<String, dynamic> r) => {
-    'id': r['id']?.toString(),
-    'type': r['type'],
-    'name': r['type'] == 'group' ? r['name'] : r['partner_name'],
-    'avatar': r['type'] == 'group' ? r['avatar'] : r['partner_avatar'],
-    'partner_id': r['partner_id'],
-    'partner_name': r['partner_name'],
-    'partner_username': r['partner_username'],
-    'partner_avatar': r['partner_avatar'],
-    'last_message': r['last_message'],
-    'last_message_at': r['last_message_at']?.toString(),
-    'unread_count': r['unread_count'] ?? 0,
-    'member_count': r['member_count'] ?? 0,
-    'is_pinned': r['is_pinned'] == 1 || r['is_pinned'] == true,
-    'is_archived': r['is_archived'] == 1 || r['is_archived'] == true,
-  };
+        'id': r['id']?.toString(),
+        'type': r['type'],
+        'name': r['type'] == 'group' ? r['name'] : r['partner_name'],
+        'avatar': r['type'] == 'group' ? r['avatar'] : r['partner_avatar'],
+        'partner_id': r['partner_id'],
+        'partner_name': r['partner_name'],
+        'partner_username': r['partner_username'],
+        'partner_avatar': r['partner_avatar'],
+        'last_message': r['last_message'],
+        'last_message_at': r['last_message_at']?.toString(),
+        'unread_count': r['unread_count'] ?? 0,
+        'member_count': r['member_count'] ?? 0,
+        'is_pinned': r['is_pinned'] == 1 || r['is_pinned'] == true,
+        'is_archived': r['is_archived'] == 1 || r['is_archived'] == true,
+      };
 
   String _extFromContentType(String contentType, String name) {
-    if (contentType.contains('jpeg') || contentType.contains('jpg')) return '.jpg';
+    if (contentType.contains('jpeg') || contentType.contains('jpg'))
+      return '.jpg';
     if (contentType.contains('png')) return '.png';
     if (contentType.contains('gif')) return '.gif';
     if (contentType.contains('pdf')) return '.pdf';

@@ -29,7 +29,8 @@ class RepostsController extends Controller {
         final post = await Posts().query().where('id', '=', postId).first();
         final ownerId = post?['user_id'] as String?;
         if (ownerId != null && ownerId != authUserId) {
-          final reposter = await User().query().where('id', '=', authUserId).first();
+          final reposter =
+              await User().query().where('id', '=', authUserId).first();
           final name = reposter?['name'] as String? ?? 'Someone';
 
           await NotificationModel().query().insert({
@@ -53,7 +54,8 @@ class RepostsController extends Controller {
         }
       }
 
-      return Response.json({'message': 'Repost created successfully'}, HttpStatus.ok);
+      return Response.json(
+          {'message': 'Repost created successfully'}, HttpStatus.ok);
     } catch (e) {
       return Response.json({'message': 'Error creating repost'}, 422);
     }
@@ -79,8 +81,7 @@ class RepostsController extends Controller {
       }
     }
 
-    return Response.json(
-        {'message': 'Malformed request: userId is required'},
+    return Response.json({'message': 'Malformed request: userId is required'},
         HttpStatus.unprocessableEntity);
   }
 }

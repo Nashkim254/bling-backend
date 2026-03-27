@@ -8,14 +8,16 @@ class OtpController extends Controller {
   /// POST /api/otp/send
   /// Body: { email }
   Future<Response> sendOtp(Request request) async {
-    final email = (request.input('email')?.toString() ?? '').trim().toLowerCase();
+    final email =
+        (request.input('email')?.toString() ?? '').trim().toLowerCase();
     if (email.isEmpty) {
       return Response.json({'message': 'Email is required'}, 422);
     }
 
     // type: 'forgot_password' (default) requires existing user
     //       'registration' requires email NOT already registered
-    final type = (request.input('type')?.toString() ?? 'forgot_password').trim();
+    final type =
+        (request.input('type')?.toString() ?? 'forgot_password').trim();
 
     final users = await connection!.select(
       'SELECT id FROM users WHERE email = \$1 AND deleted_at IS NULL LIMIT 1',
@@ -28,7 +30,8 @@ class OtpController extends Controller {
       }
     } else {
       if (users.isEmpty) {
-        return Response.json({'message': 'No account found with that email'}, 404);
+        return Response.json(
+            {'message': 'No account found with that email'}, 404);
       }
     }
 
@@ -65,7 +68,8 @@ class OtpController extends Controller {
   /// POST /api/otp/verify
   /// Body: { email, code }
   Future<Response> verifyOtp(Request request) async {
-    final email = (request.input('email')?.toString() ?? '').trim().toLowerCase();
+    final email =
+        (request.input('email')?.toString() ?? '').trim().toLowerCase();
     final code = (request.input('code')?.toString() ?? '').trim().toUpperCase();
 
     if (email.isEmpty || code.isEmpty) {
@@ -91,7 +95,8 @@ class OtpController extends Controller {
     print('[OTP] Verify attempt for $email: entered=$code stored=$storedCode');
 
     if (expiresAt != null && DateTime.now().isAfter(expiresAt)) {
-      await connection!.statement('DELETE FROM otps WHERE email = \$1', [email]);
+      await connection!
+          .statement('DELETE FROM otps WHERE email = \$1', [email]);
       return Response.json({'message': 'OTP has expired'}, 400);
     }
 

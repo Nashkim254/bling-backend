@@ -25,6 +25,12 @@ class ChallengesController extends Controller {
             'challenges.description',
             'challenges.hashtags',
             'challenges.image_url',
+            'challenges.thumbnail_url',
+            'challenges.video_url',
+            'challenges.media_kind',
+            'challenges.storage_bucket',
+            'challenges.storage_path',
+            'challenges.mime_type',
             'challenges.prize_bling',
             'challenges.is_active',
             'challenges.ends_at',
@@ -47,6 +53,12 @@ class ChallengesController extends Controller {
             'challenges.description',
             'challenges.hashtags',
             'challenges.image_url',
+            'challenges.thumbnail_url',
+            'challenges.video_url',
+            'challenges.media_kind',
+            'challenges.storage_bucket',
+            'challenges.storage_path',
+            'challenges.mime_type',
             'challenges.prize_bling',
             'challenges.is_active',
             'challenges.ends_at',
@@ -83,6 +95,12 @@ class ChallengesController extends Controller {
           'description': ch['description'],
           'hashtags': ch['hashtags'],
           'image_url': ch['image_url'],
+          'thumbnail_url': ch['thumbnail_url'] ?? '',
+          'video_url': ch['video_url'] ?? '',
+          'media_kind': ch['media_kind'] ?? 'image',
+          'storage_bucket': ch['storage_bucket'] ?? '',
+          'storage_path': ch['storage_path'] ?? '',
+          'mime_type': ch['mime_type'] ?? '',
           'prize_bling': ch['prize_bling'],
           'is_active': ch['is_active'],
           'ends_at': ch['ends_at']?.toString(),
@@ -117,6 +135,8 @@ class ChallengesController extends Controller {
     try {
       final rows = await connection!.select('''
         SELECT c.id, c.user_id, c.title, c.description, c.hashtags, c.image_url,
+               c.thumbnail_url, c.video_url, c.media_kind,
+               c.storage_bucket, c.storage_path, c.mime_type,
                c.prize_bling, c.is_active, c.ends_at, c.created_at,
                u.name AS user_name, u.username AS user_username,
                u.avatar AS user_avatar, u.is_verified AS user_is_verified,
@@ -162,6 +182,12 @@ class ChallengesController extends Controller {
           'description': ch['description'],
           'hashtags': ch['hashtags'],
           'image_url': ch['image_url'],
+          'thumbnail_url': ch['thumbnail_url'] ?? '',
+          'video_url': ch['video_url'] ?? '',
+          'media_kind': ch['media_kind'] ?? 'image',
+          'storage_bucket': ch['storage_bucket'] ?? '',
+          'storage_path': ch['storage_path'] ?? '',
+          'mime_type': ch['mime_type'] ?? '',
           'prize_bling': ch['prize_bling'],
           'is_active': ch['is_active'],
           'ends_at': ch['ends_at']?.toString(),
@@ -169,16 +195,18 @@ class ChallengesController extends Controller {
           'is_entered': isEntered,
           'created_at': ch['created_at'].toString(),
         },
-        'participants': participants.map((p) => {
-          'id': p['id']?.toString(),
-          'user_id': p['user_id']?.toString(),
-          'user_name': p['user_name'],
-          'user_username': p['user_username'],
-          'user_avatar': p['user_avatar'],
-          'post_id': p['post_id']?.toString(),
-          'is_winner': p['is_winner'] == 1 || p['is_winner'] == true,
-          'joined_at': p['created_at'].toString(),
-        }).toList(),
+        'participants': participants
+            .map((p) => {
+                  'id': p['id']?.toString(),
+                  'user_id': p['user_id']?.toString(),
+                  'user_name': p['user_name'],
+                  'user_username': p['user_username'],
+                  'user_avatar': p['user_avatar'],
+                  'post_id': p['post_id']?.toString(),
+                  'is_winner': p['is_winner'] == 1 || p['is_winner'] == true,
+                  'joined_at': p['created_at'].toString(),
+                })
+            .toList(),
       }, 200);
     } catch (e) {
       return Response.json({'message': 'Error', 'error': e.toString()}, 500);
@@ -201,16 +229,28 @@ class ChallengesController extends Controller {
     }
 
     try {
-      final body = Map<String, dynamic>.from(request.body);
-      body.remove('auth_user_id');
       final challengeId = const Uuid().v4();
       final now = DateTime.now().toIso8601String();
 
-      body['id'] = challengeId;
-      body['user_id'] = authUserId;
-      body['is_active'] = 1;
-      body['created_at'] = now;
-      body['updated_at'] = now;
+      final body = <String, dynamic>{
+        'id': challengeId,
+        'user_id': authUserId,
+        'title': request.body['title']?.toString().trim() ?? '',
+        'description': request.body['description']?.toString().trim() ?? '',
+        'hashtags': request.body['hashtags']?.toString() ?? '',
+        'image_url': request.body['image_url']?.toString() ?? '',
+        'thumbnail_url': request.body['thumbnail_url']?.toString() ?? '',
+        'video_url': request.body['video_url']?.toString() ?? '',
+        'media_kind': request.body['media_kind']?.toString() ?? 'image',
+        'storage_bucket': request.body['storage_bucket']?.toString() ?? '',
+        'storage_path': request.body['storage_path']?.toString() ?? '',
+        'mime_type': request.body['mime_type']?.toString() ?? '',
+        'prize_bling':
+            int.tryParse(request.body['prize_bling']?.toString() ?? '0') ?? 0,
+        'is_active': 1,
+        'created_at': now,
+        'updated_at': now,
+      };
 
       await ChallengesModel().query().insert(body);
 

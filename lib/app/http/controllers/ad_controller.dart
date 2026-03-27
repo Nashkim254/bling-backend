@@ -18,7 +18,8 @@ class AdController extends Controller {
   Future<Response> getAds(Request request) async {
     final count = int.tryParse(request.input('count')?.toString() ?? '1') ?? 1;
     final userId = request.input('auth_user_id')?.toString() ?? '';
-    final userLevel = int.tryParse(request.input('user_level')?.toString() ?? '1') ?? 1;
+    final userLevel =
+        int.tryParse(request.input('user_level')?.toString() ?? '1') ?? 1;
     final isVerified = request.input('is_verified')?.toString() == 'true';
 
     try {
@@ -26,15 +27,17 @@ class AdController extends Controller {
           ? "AND NOT EXISTS (SELECT 1 FROM ad_impressions ai WHERE ai.ad_id = a.id AND ai.user_id = '$userId' AND ai.created_at::date = CURRENT_DATE)"
           : '';
 
-      final verifiedClause =
-          isVerified ? '' : 'AND (a.target_verified_only = false OR a.target_verified_only IS NULL)';
+      final verifiedClause = isVerified
+          ? ''
+          : 'AND (a.target_verified_only = false OR a.target_verified_only IS NULL)';
 
       final levelClause =
           'AND (a.target_min_level IS NULL OR a.target_min_level <= $userLevel)';
 
       final ads = await connection!.select('''
         SELECT
-          a.id, a.title, a.body, a.image_url, a.target_url,
+          a.id, a.title, a.body, a.image_url, a.thumbnail_url, a.video_url,
+          a.media_kind, a.storage_bucket, a.storage_path, a.mime_type, a.target_url,
           a.cpm_bling, a.budget_bling, a.spent_bling,
           a.total_impressions, a.total_clicks,
           -- Weighted score
@@ -57,14 +60,22 @@ class AdController extends Controller {
       ''', [count]);
 
       return Response.json({
-        'ads': (ads).map((ad) => {
-              'id': ad['id'],
-              'title': ad['title'],
-              'body': ad['body'],
-              'image_url': ad['image_url'],
-              'target_url': ad['target_url'],
-              'item_type': 'ad',
-            }).toList(),
+        'ads': (ads)
+            .map((ad) => {
+                  'id': ad['id'],
+                  'title': ad['title'],
+                  'body': ad['body'],
+                  'image_url': ad['image_url'],
+                  'thumbnail_url': ad['thumbnail_url'] ?? '',
+                  'video_url': ad['video_url'] ?? '',
+                  'media_kind': ad['media_kind'] ?? 'image',
+                  'storage_bucket': ad['storage_bucket'] ?? '',
+                  'storage_path': ad['storage_path'] ?? '',
+                  'mime_type': ad['mime_type'] ?? '',
+                  'target_url': ad['target_url'],
+                  'item_type': 'ad',
+                })
+            .toList(),
       }, HttpStatus.ok);
     } catch (e) {
       print('[Ads] getAds error: $e');
@@ -162,11 +173,20 @@ class AdController extends Controller {
     final title = body['title']?.toString() ?? '';
     final adBody = body['body']?.toString() ?? '';
     final imageUrl = body['image_url']?.toString() ?? '';
+    final thumbnailUrl = body['thumbnail_url']?.toString() ?? '';
+    final videoUrl = body['video_url']?.toString() ?? '';
+    final mediaKind = body['media_kind']?.toString() ?? 'image';
+    final storageBucket = body['storage_bucket']?.toString() ?? '';
+    final storagePath = body['storage_path']?.toString() ?? '';
+    final mimeType = body['mime_type']?.toString() ?? '';
     final targetUrl = body['target_url']?.toString() ?? '';
-    final budgetBling = int.tryParse(body['budget_bling']?.toString() ?? '0') ?? 0;
+    final budgetBling =
+        int.tryParse(body['budget_bling']?.toString() ?? '0') ?? 0;
     final cpmBling = int.tryParse(body['cpm_bling']?.toString() ?? '50') ?? 50;
-    final targetMinLevel = int.tryParse(body['target_min_level']?.toString() ?? '');
-    final targetVerifiedOnly = body['target_verified_only'] == true || body['target_verified_only'] == 'true';
+    final targetMinLevel =
+        int.tryParse(body['target_min_level']?.toString() ?? '');
+    final targetVerifiedOnly = body['target_verified_only'] == true ||
+        body['target_verified_only'] == 'true';
     final startAt = body['start_at']?.toString();
     final endAt = body['end_at']?.toString();
 
@@ -178,7 +198,8 @@ class AdController extends Controller {
     }
 
     // Check wallet balance
-    final wallet = await Wallet().query().where('user_id', '=', advertiserId).first();
+    final wallet =
+        await Wallet().query().where('user_id', '=', advertiserId).first();
     if (wallet == null || (wallet['balance'] as num).toInt() < budgetBling) {
       return Response.json({'message': 'Insufficient Bling balance'}, 400);
     }
@@ -197,6 +218,7 @@ class AdController extends Controller {
     await connection!.statement('''
       INSERT INTO ads (
         id, advertiser_id, title, body, image_url, target_url,
+        thumbnail_url, video_url, media_kind, storage_bucket, storage_path, mime_type,
         budget_bling, spent_bling, cpm_bling,
         target_min_level, target_verified_only,
         start_at, end_at, status, is_active,
@@ -204,24 +226,39 @@ class AdController extends Controller {
         created_at, updated_at
       ) VALUES (
         \$1, \$2, \$3, \$4, \$5, \$6,
-        \$7, 0, \$8,
-        \$9, \$10,
-        \$11, \$12, 'active', 1,
+        \$7, \$8, \$9, \$10, \$11, \$12,
+        \$13, 0, \$14,
+        \$15, \$16,
+        \$17, \$18, 'active', 1,
         0, 0,
-        \$13, \$13
+        \$19, \$19
       )
     ''', [
-      adId, advertiserId, title, adBody, imageUrl, targetUrl,
-      budgetBling, cpmBling,
-      targetMinLevel, targetVerifiedOnly,
-      startAt, endAt, now,
+      adId,
+      advertiserId,
+      title,
+      adBody,
+      imageUrl,
+      targetUrl,
+      thumbnailUrl,
+      videoUrl,
+      mediaKind,
+      storageBucket,
+      storagePath,
+      mimeType,
+      budgetBling,
+      cpmBling,
+      targetMinLevel,
+      targetVerifiedOnly,
+      startAt,
+      endAt,
+      now,
     ]);
 
     // Estimate reach: budget / (cpm / 1000)
     final costPerImpression = cpmBling / 1000;
-    final estimatedReach = costPerImpression > 0
-        ? (budgetBling / costPerImpression).round()
-        : 0;
+    final estimatedReach =
+        costPerImpression > 0 ? (budgetBling / costPerImpression).round() : 0;
 
     return Response.json({
       'message': 'Campaign created successfully',
@@ -243,7 +280,8 @@ class AdController extends Controller {
 
     try {
       final ads = await connection!.select('''
-        SELECT id, title, body, image_url, target_url,
+        SELECT id, title, body, image_url, thumbnail_url, video_url,
+               media_kind, storage_bucket, storage_path, mime_type, target_url,
                budget_bling, spent_bling, cpm_bling,
                total_impressions, total_clicks, status,
                start_at, end_at, created_at,
@@ -257,24 +295,32 @@ class AdController extends Controller {
       ''', [advertiserId]);
 
       return Response.json({
-        'campaigns': ads.map((a) => {
-              'id': a['id'],
-              'title': a['title'],
-              'body': a['body'],
-              'image_url': a['image_url'],
-              'target_url': a['target_url'],
-              'budget_bling': a['budget_bling'],
-              'spent_bling': a['spent_bling'],
-              'remaining_bling': a['remaining_bling'],
-              'cpm_bling': a['cpm_bling'],
-              'total_impressions': a['total_impressions'],
-              'total_clicks': a['total_clicks'],
-              'ctr_percent': a['ctr_percent'],
-              'status': a['status'],
-              'start_at': a['start_at']?.toString(),
-              'end_at': a['end_at']?.toString(),
-              'created_at': a['created_at']?.toString(),
-            }).toList(),
+        'campaigns': ads
+            .map((a) => {
+                  'id': a['id'],
+                  'title': a['title'],
+                  'body': a['body'],
+                  'image_url': a['image_url'],
+                  'thumbnail_url': a['thumbnail_url'] ?? '',
+                  'video_url': a['video_url'] ?? '',
+                  'media_kind': a['media_kind'] ?? 'image',
+                  'storage_bucket': a['storage_bucket'] ?? '',
+                  'storage_path': a['storage_path'] ?? '',
+                  'mime_type': a['mime_type'] ?? '',
+                  'target_url': a['target_url'],
+                  'budget_bling': a['budget_bling'],
+                  'spent_bling': a['spent_bling'],
+                  'remaining_bling': a['remaining_bling'],
+                  'cpm_bling': a['cpm_bling'],
+                  'total_impressions': a['total_impressions'],
+                  'total_clicks': a['total_clicks'],
+                  'ctr_percent': a['ctr_percent'],
+                  'status': a['status'],
+                  'start_at': a['start_at']?.toString(),
+                  'end_at': a['end_at']?.toString(),
+                  'created_at': a['created_at']?.toString(),
+                })
+            .toList(),
       }, HttpStatus.ok);
     } catch (e) {
       return Response.json({'message': 'Error: $e'}, 500);
@@ -311,7 +357,8 @@ class AdController extends Controller {
       [status, DateTime.now().toIso8601String(), adId],
     );
 
-    return Response.json({'message': 'Campaign updated', 'status': status}, 200);
+    return Response.json(
+        {'message': 'Campaign updated', 'status': status}, 200);
   }
 }
 

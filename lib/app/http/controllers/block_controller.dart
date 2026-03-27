@@ -72,13 +72,15 @@ class BlockController extends Controller {
         ORDER BY b.created_at DESC
       ''', [me]);
 
-      final users = rows.map((r) => {
-        'id': r['id'],
-        'name': r['name'],
-        'username': r['username'],
-        'avatar': r['avatar'],
-        'blocked_at': r['blocked_at'].toString(),
-      }).toList();
+      final users = rows
+          .map((r) => {
+                'id': r['id'],
+                'name': r['name'],
+                'username': r['username'],
+                'avatar': r['avatar'],
+                'blocked_at': r['blocked_at'].toString(),
+              })
+          .toList();
 
       return Response.json({'blocked_users': users}, HttpStatus.ok);
     } catch (e) {

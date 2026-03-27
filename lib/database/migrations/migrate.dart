@@ -34,6 +34,7 @@ import 'create_reports_table.dart';
 import 'alter_users_add_status.dart';
 import 'alter_users_add_fcm_token.dart';
 import 'alter_users_add_location.dart';
+import 'add_media_columns.dart';
 
 void main(List<String> args) async {
   await MigrationConnection().setup();
@@ -83,6 +84,7 @@ class Migrate {
     await AlterUsersAddStatus().up();
     await AlterUsersAddFcmToken().up();
     await AlterUsersAddLocation().up();
+    await AddMediaColumns().up();
   }
 
   dropTables() async {

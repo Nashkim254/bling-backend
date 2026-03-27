@@ -50,6 +50,10 @@ class PostsController extends Controller {
             'posts.image_url',
             'posts.thumbnail_url',
             'posts.video_url',
+            'posts.media_kind',
+            'posts.storage_bucket',
+            'posts.storage_path',
+            'posts.mime_type',
             'posts.is_active',
             'posts.created_at',
             'users.name as user_name',
@@ -79,6 +83,10 @@ class PostsController extends Controller {
             'posts.image_url',
             'posts.thumbnail_url',
             'posts.video_url',
+            'posts.media_kind',
+            'posts.storage_bucket',
+            'posts.storage_path',
+            'posts.mime_type',
             'posts.is_active',
             'posts.created_at',
             'users.name',
@@ -111,6 +119,10 @@ class PostsController extends Controller {
           'image_url': post['image_url'],
           'thumbnail_url': post['thumbnail_url'] ?? '',
           'video_url': post['video_url'] ?? '',
+          'media_kind': post['media_kind'] ?? 'image',
+          'storage_bucket': post['storage_bucket'] ?? '',
+          'storage_path': post['storage_path'] ?? '',
+          'mime_type': post['mime_type'] ?? '',
           'is_active': post['is_active'],
           'created_at': post['created_at'].toString(),
           'comment_count': post['comment_count'] ?? 0,
@@ -163,6 +175,10 @@ class PostsController extends Controller {
             'posts.image_url',
             'posts.thumbnail_url',
             'posts.video_url',
+            'posts.media_kind',
+            'posts.storage_bucket',
+            'posts.storage_path',
+            'posts.mime_type',
             'posts.is_active',
             'posts.created_at',
           ])
@@ -182,6 +198,10 @@ class PostsController extends Controller {
             'posts.image_url',
             'posts.thumbnail_url',
             'posts.video_url',
+            'posts.media_kind',
+            'posts.storage_bucket',
+            'posts.storage_path',
+            'posts.mime_type',
             'posts.is_active',
             'posts.created_at',
           ])
@@ -205,6 +225,10 @@ class PostsController extends Controller {
           'image_url': post['image_url'],
           'thumbnail_url': post['thumbnail_url'] ?? '',
           'video_url': post['video_url'] ?? '',
+          'media_kind': post['media_kind'] ?? 'image',
+          'storage_bucket': post['storage_bucket'] ?? '',
+          'storage_path': post['storage_path'] ?? '',
+          'mime_type': post['mime_type'] ?? '',
           'is_active': post['is_active'],
           'created_at': post['created_at'].toString(),
           'comment_count': post['comment_count'] ?? 0,
@@ -247,23 +271,35 @@ class PostsController extends Controller {
     }
 
     try {
-      final body = Map<String, dynamic>.from(request.body);
-      body.remove('auth_user_id');
+      final payload = Map<String, dynamic>.from(request.body);
       final postId = const Uuid().v4();
       final now = DateTime.now().toIso8601String();
 
-      body['id'] = postId;
-      body['user_id'] = authUserId;
-      body['is_active'] = 1;
-      body['created_at'] = now;
-      body['updated_at'] = now;
+      final body = <String, dynamic>{
+        'id': postId,
+        'user_id': authUserId,
+        'caption': payload['caption']?.toString().trim() ?? '',
+        'post_type': payload['post_type']?.toString().trim() ?? 'feed',
+        'image_url': payload['image_url']?.toString() ?? '',
+        'thumbnail_url': payload['thumbnail_url']?.toString() ?? '',
+        'video_url': payload['video_url']?.toString() ?? '',
+        'media_kind': payload['media_kind']?.toString() ?? 'image',
+        'storage_bucket': payload['storage_bucket']?.toString() ?? '',
+        'storage_path': payload['storage_path']?.toString() ?? '',
+        'mime_type': payload['mime_type']?.toString() ?? '',
+        'is_active': 1,
+        'created_at': now,
+        'updated_at': now,
+      };
 
       // Handle hashtags - extract from caption if not provided
-      if (body['hashtags'] == null) {
+      if (payload['hashtags'] == null) {
         final caption = body['caption'] as String? ?? '';
         final hashtags =
             RegExp(r'#\w+').allMatches(caption).map((m) => m.group(0)).toList();
         body['hashtags'] = hashtags;
+      } else {
+        body['hashtags'] = payload['hashtags'];
       }
 
       await Posts().query().insert(body);
@@ -576,7 +612,8 @@ class PostsController extends Controller {
     try {
       final rows = await connection!.select('''
         SELECT p.id, p.user_id, p.caption, p.post_type, p.image_url,
-               p.thumbnail_url, p.video_url,
+               p.thumbnail_url, p.video_url, p.media_kind,
+               p.storage_bucket, p.storage_path, p.mime_type,
                p.is_active, p.created_at, p.hashtags::TEXT AS extracted_hashtags,
                u.name AS user_name, u.username AS user_username,
                u.avatar AS user_avatar, u.is_verified AS user_is_verified,
@@ -613,6 +650,10 @@ class PostsController extends Controller {
           'image_url': p['image_url'],
           'thumbnail_url': p['thumbnail_url'] ?? '',
           'video_url': p['video_url'] ?? '',
+          'media_kind': p['media_kind'] ?? 'image',
+          'storage_bucket': p['storage_bucket'] ?? '',
+          'storage_path': p['storage_path'] ?? '',
+          'mime_type': p['mime_type'] ?? '',
           'is_active': p['is_active'],
           'created_at': p['created_at'].toString(),
           'comment_count': p['comment_count'] ?? 0,
@@ -647,7 +688,8 @@ class PostsController extends Controller {
       // Use JSONB containment to find posts whose hashtags array includes the tag
       final rows = await connection!.select(
         '''SELECT p.id, p.user_id, p.caption, p.post_type, p.image_url,
-                  p.thumbnail_url, p.video_url,
+                  p.thumbnail_url, p.video_url, p.media_kind,
+                  p.storage_bucket, p.storage_path, p.mime_type,
                   p.is_active, p.created_at, p.hashtags::TEXT AS extracted_hashtags,
                   u.name AS user_name, u.username AS user_username,
                   u.avatar AS user_avatar, u.is_verified AS user_is_verified,
@@ -687,6 +729,10 @@ class PostsController extends Controller {
           'image_url': p['image_url'],
           'thumbnail_url': p['thumbnail_url'] ?? '',
           'video_url': p['video_url'] ?? '',
+          'media_kind': p['media_kind'] ?? 'image',
+          'storage_bucket': p['storage_bucket'] ?? '',
+          'storage_path': p['storage_path'] ?? '',
+          'mime_type': p['mime_type'] ?? '',
           'is_active': p['is_active'],
           'created_at': p['created_at'].toString(),
           'comment_count': p['comment_count'] ?? 0,

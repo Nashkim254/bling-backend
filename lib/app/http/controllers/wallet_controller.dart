@@ -47,14 +47,16 @@ class WalletController extends Controller {
       'wallet': {
         'balance': wallet['balance'],
         'user_id': wallet['user_id'],
-        'recent_transactions': (transactions as List).map((t) => {
-              'id': t['id'],
-              'type': t['type'],
-              'amount': t['amount'],
-              'to_user_id': t['to_user_id'],
-              'description': t['description'],
-              'created_at': t['created_at'].toString(),
-            }).toList(),
+        'recent_transactions': (transactions as List)
+            .map((t) => {
+                  'id': t['id'],
+                  'type': t['type'],
+                  'amount': t['amount'],
+                  'to_user_id': t['to_user_id'],
+                  'description': t['description'],
+                  'created_at': t['created_at'].toString(),
+                })
+            .toList(),
       }
     }, HttpStatus.ok);
   }
@@ -66,8 +68,7 @@ class WalletController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final page =
-        int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
+    final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
     final limit =
         int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
 
@@ -220,7 +221,8 @@ class WalletController extends Controller {
     // ── Commission ────────────────────────────────────────────────────────
     final isTip = context == 'post_tip' || context == 'challenge_tip';
     final commissionRate =
-        int.tryParse(Platform.environment['PLATFORM_COMMISSION_RATE'] ?? '5') ?? 5;
+        int.tryParse(Platform.environment['PLATFORM_COMMISSION_RATE'] ?? '5') ??
+            5;
     final feeAmount = isTip ? (amount * commissionRate / 100).floor() : 0;
     final recipientAmount = amount - feeAmount;
 
@@ -236,8 +238,7 @@ class WalletController extends Controller {
     final sender = await User().query().where('id', '=', authUserId).first();
 
     // ── Deduct full amount from sender ────────────────────────────────────
-    final newSenderBalance =
-        (senderWallet['balance'] as num).toInt() - amount;
+    final newSenderBalance = (senderWallet['balance'] as num).toInt() - amount;
     await Wallet().query().where('user_id', '=', authUserId).update({
       'balance': newSenderBalance,
       'updated_at': now,
@@ -303,8 +304,8 @@ class WalletController extends Controller {
     if (feeAmount > 0) {
       await BlingTransaction().query().insert({
         'id': const Uuid().v4(),
-        'user_id': authUserId,   // who generated this fee
-        'to_user_id': toUserId,  // whose tip it came from
+        'user_id': authUserId, // who generated this fee
+        'to_user_id': toUserId, // whose tip it came from
         'type': 'platform_commission',
         'amount': feeAmount,
         'fee_amount': feeAmount,
@@ -342,7 +343,11 @@ class WalletController extends Controller {
       toUserId,
       title: isTip ? 'You got a tip! 💰' : 'Bling Received! 💎',
       body: notifBody,
-      data: {'type': isTip ? 'tip_received' : 'bling_received', 'amount': recipientAmount.toString(), 'from_user_id': authUserId},
+      data: {
+        'type': isTip ? 'tip_received' : 'bling_received',
+        'amount': recipientAmount.toString(),
+        'from_user_id': authUserId
+      },
     ));
 
     // Push to sender (confirmation)
@@ -352,7 +357,11 @@ class WalletController extends Controller {
       body: isTip
           ? 'You tipped ${recipient['name']} $recipientAmount Bling'
           : 'You sent $amount Bling to ${recipient['name']}',
-      data: {'type': 'transfer_sent', 'amount': amount.toString(), 'to_user_id': toUserId},
+      data: {
+        'type': 'transfer_sent',
+        'amount': amount.toString(),
+        'to_user_id': toUserId
+      },
     ));
 
     return Response.json({

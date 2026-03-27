@@ -9,7 +9,8 @@ class CreateBlingTransactionsTable extends Migration {
       primary('id');
       uuid('user_id'); // initiator (buyer/sender)
       char('to_user_id', length: 255, nullable: true); // recipient (transfers)
-      char('type', length: 50); // 'purchase','transfer_out','transfer_in','reward'
+      char('type',
+          length: 50); // 'purchase','transfer_out','transfer_in','reward'
       integer('amount'); // bling amount
       char('reference', length: 200, nullable: true); // payment reference
       string('description', length: 500, nullable: true);

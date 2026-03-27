@@ -11,8 +11,7 @@ class NotificationController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final page =
-        int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
+    final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
     final limit =
         int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
 

@@ -8,7 +8,8 @@ class CreateNotificationsTable extends Migration {
       uuid('id');
       primary('id');
       uuid('user_id'); // recipient
-      char('type', length: 100); // 'like','comment','follow','bling_received', etc.
+      char('type',
+          length: 100); // 'like','comment','follow','bling_received', etc.
       char('title', length: 200);
       string('body', length: 500);
       json('data', nullable: true); // extra payload

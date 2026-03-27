@@ -197,7 +197,8 @@ class AuthController extends Controller {
             DateTime.now().add(const Duration(hours: 24)).toIso8601String(),
       }, HttpStatus.ok);
     } on JWTExpiredException {
-      return Response.json({'message': 'Refresh token expired, please login again'}, 401);
+      return Response.json(
+          {'message': 'Refresh token expired, please login again'}, 401);
     } catch (e) {
       return Response.json({'message': 'Invalid refresh token'}, 401);
     }
@@ -408,7 +409,8 @@ class AuthController extends Controller {
       }
 
       final offset = (page - 1) * limit;
-      final data = await query.orderBy('name', 'ASC').limit(limit).offset(offset).get();
+      final data =
+          await query.orderBy('name', 'ASC').limit(limit).offset(offset).get();
 
       return Response.json({
         'users': {
@@ -448,7 +450,8 @@ class AuthController extends Controller {
   /// PUT /api/user/location  (authenticated)
   Future<Response> updateLocation(Request request) async {
     final userId = request.input('auth_user_id') as String? ?? '';
-    if (userId.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
+    if (userId.isEmpty)
+      return Response.json({'message': 'Unauthenticated'}, 401);
 
     final lat = double.tryParse(request.body['latitude']?.toString() ?? '');
     final lng = double.tryParse(request.body['longitude']?.toString() ?? '');
@@ -469,14 +472,16 @@ class AuthController extends Controller {
   /// Body: { email, password }
   /// The OTP must have been verified already (OTP is deleted on verify).
   Future<Response> resetPassword(Request request) async {
-    final email = (request.input('email')?.toString() ?? '').trim().toLowerCase();
+    final email =
+        (request.input('email')?.toString() ?? '').trim().toLowerCase();
     final password = (request.input('password')?.toString() ?? '').trim();
 
     if (email.isEmpty || password.isEmpty) {
       return Response.json({'message': 'Email and password are required'}, 422);
     }
     if (password.length < 6) {
-      return Response.json({'message': 'Password must be at least 6 characters'}, 422);
+      return Response.json(
+          {'message': 'Password must be at least 6 characters'}, 422);
     }
 
     final users = await connection!.select(
@@ -484,7 +489,8 @@ class AuthController extends Controller {
       [email],
     );
     if (users.isEmpty) {
-      return Response.json({'message': 'No account found with that email'}, 404);
+      return Response.json(
+          {'message': 'No account found with that email'}, 404);
     }
 
     final hashed = Hash().make(password);
@@ -500,9 +506,11 @@ class AuthController extends Controller {
   /// Returns users within [radius] km who have shared their location.
   Future<Response> getNearbyUsers(Request request) async {
     final userId = request.input('auth_user_id') as String? ?? '';
-    if (userId.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
+    if (userId.isEmpty)
+      return Response.json({'message': 'Unauthenticated'}, 401);
 
-    final radius = double.tryParse(request.input('radius')?.toString() ?? '20') ?? 20.0;
+    final radius =
+        double.tryParse(request.input('radius')?.toString() ?? '20') ?? 20.0;
 
     // Haversine formula in PostgreSQL
     final rows = await connection!.select("""
@@ -532,7 +540,6 @@ class AuthController extends Controller {
 
     return Response.json({'users': rows}, 200);
   }
-
 }
 
 final AuthController authController = AuthController();

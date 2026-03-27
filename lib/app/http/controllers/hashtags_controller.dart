@@ -4,7 +4,7 @@ import 'package:bling/app/models/hashtags_model.dart';
 import 'package:vania/vania.dart';
 
 class HashtagsController extends Controller {
-    Future<Response> createHashtag(Request request) async {
+  Future<Response> createHashtag(Request request) async {
     Map<String, dynamic> body = request.body;
     body['created_at'] = DateTime.now();
     body['updated_at'] = DateTime.now();
@@ -21,4 +21,3 @@ class HashtagsController extends Controller {
 }
 
 final HashtagsController hashtagsController = HashtagsController();
-
