@@ -313,7 +313,7 @@ class PostsController extends Controller {
         'user_id': authUserId,
         'caption': payload['caption']?.toString().trim() ?? '',
         'post_type': payload['post_type']?.toString().trim() ?? 'feed',
-        'media': media,
+        'media': jsonEncode(media),
         'image_url': legacyMedia['image_url'],
         'thumbnail_url': legacyMedia['thumbnail_url'],
         'video_url': legacyMedia['video_url'],
@@ -331,9 +331,10 @@ class PostsController extends Controller {
         final caption = body['caption'] as String? ?? '';
         final hashtags =
             RegExp(r'#\w+').allMatches(caption).map((m) => m.group(0)).toList();
-        body['hashtags'] = hashtags;
+        body['hashtags'] = jsonEncode(hashtags);
       } else {
-        body['hashtags'] = payload['hashtags'];
+        final hashtags = payload['hashtags'];
+        body['hashtags'] = hashtags is String ? hashtags : jsonEncode(hashtags);
       }
 
       await Posts().query().insert(body);

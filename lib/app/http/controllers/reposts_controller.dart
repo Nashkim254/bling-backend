@@ -10,48 +10,69 @@ import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
 class RepostsController extends Controller {
-  Future<Response> createRepost(Request request) async {
+  Future<Response> createRepost(Request request, [dynamic _]) async {
     final authUserId = request.input('auth_user_id')?.toString() ?? '';
     if (authUserId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    Map<String, dynamic> body = Map<String, dynamic>.from(request.body);
-    final postId = body['post_id']?.toString() ?? '';
+    final postId = request.params()['id']?.toString().isNotEmpty == true
+        ? request.params()['id'].toString()
+        : request.body['post_id']?.toString() ?? '';
+    if (postId.isEmpty) {
+      return Response.json({'message': 'Post id is required'}, 422);
+    }
+
     final now = DateTime.now().toIso8601String();
-    body['created_at'] = now;
-    body['updated_at'] = now;
 
     try {
-      await RepostsModel().query().insert(body);
+      final post = await Posts().query().where('id', '=', postId).first();
+      if (post == null) {
+        return Response.json({'message': 'Post not found'}, 404);
+      }
 
-      if (postId.isNotEmpty) {
-        final post = await Posts().query().where('id', '=', postId).first();
-        final ownerId = post?['user_id'] as String?;
-        if (ownerId != null && ownerId != authUserId) {
-          final reposter =
-              await User().query().where('id', '=', authUserId).first();
-          final name = reposter?['name'] as String? ?? 'Someone';
+      final existingRepost = await RepostsModel()
+          .query()
+          .where('user_id', '=', authUserId)
+          .where('post_id', '=', postId)
+          .first();
 
-          await NotificationModel().query().insert({
-            'id': const Uuid().v4(),
-            'user_id': ownerId,
-            'type': 'repost',
-            'title': 'New Repost',
-            'body': '$name reposted your post',
-            'data': '{"post_id":"$postId","user_id":"$authUserId"}',
-            'is_read': 0,
-            'created_at': now,
-            'updated_at': now,
-          });
+      if (existingRepost != null) {
+        return Response.json({'message': 'Post already reposted'}, 200);
+      }
 
-          unawaited(FcmService.instance.sendToUser(
-            ownerId,
-            title: 'New Repost',
-            body: '$name reposted your post',
-            data: {'type': 'repost', 'post_id': postId},
-          ));
-        }
+      await RepostsModel().query().insert({
+        'id': const Uuid().v4(),
+        'user_id': authUserId,
+        'post_id': postId,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      final ownerId = post['user_id'] as String?;
+      if (ownerId != null && ownerId != authUserId) {
+        final reposter =
+            await User().query().where('id', '=', authUserId).first();
+        final name = reposter?['name'] as String? ?? 'Someone';
+
+        await NotificationModel().query().insert({
+          'id': const Uuid().v4(),
+          'user_id': ownerId,
+          'type': 'repost',
+          'title': 'New Repost',
+          'body': '$name reposted your post',
+          'data': '{"post_id":"$postId","user_id":"$authUserId"}',
+          'is_read': 0,
+          'created_at': now,
+          'updated_at': now,
+        });
+
+        unawaited(FcmService.instance.sendToUser(
+          ownerId,
+          title: 'New Repost',
+          body: '$name reposted your post',
+          data: {'type': 'repost', 'post_id': postId},
+        ));
       }
 
       return Response.json(

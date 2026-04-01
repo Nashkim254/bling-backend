@@ -1,5 +1,7 @@
 import 'package:bling/app/http/controllers/account_controller.dart';
 import 'package:bling/app/http/controllers/ad_controller.dart';
+import 'package:bling/app/http/controllers/admin_auth_controller.dart';
+import 'package:bling/app/http/controllers/admin_controller.dart';
 import 'package:bling/app/http/controllers/auth_controller.dart';
 import 'package:bling/app/http/controllers/block_controller.dart';
 import 'package:bling/app/http/controllers/otp_controller.dart';
@@ -11,8 +13,10 @@ import 'package:bling/app/http/controllers/notification_controller.dart';
 import 'package:bling/app/http/controllers/posts_controller.dart';
 import 'package:bling/app/http/controllers/purchase_controller.dart';
 import 'package:bling/app/http/controllers/report_controller.dart';
+import 'package:bling/app/http/controllers/reposts_controller.dart';
 import 'package:bling/app/http/controllers/wallet_controller.dart';
 import 'package:bling/app/http/middleware/authenticate.dart';
+import 'package:bling/app/http/middleware/admin_middleware.dart';
 import 'package:vania/vania.dart';
 
 class ApiRoute implements Route {
@@ -23,6 +27,7 @@ class ApiRoute implements Route {
     // ─── Public Auth Routes ───────────────────────────────────────────
     Router.post('/register', authController.register);
     Router.post('/login', authController.login);
+    Router.post('/admin/login', adminAuthController.login);
 
     // ─── OTP & Password Reset ─────────────────────────────────────────
     Router.post('/otp/send', otpController.sendOtp);
@@ -41,6 +46,59 @@ class ApiRoute implements Route {
 
     // ─── Authenticated Routes ─────────────────────────────────────────
     Router.group(() {
+      Router.get('/admin/dashboard', adminController.getDashboard);
+      Router.get('/admin/settings/roles', adminController.getRoles);
+      Router.post('/admin/settings/roles', adminController.createRole);
+      Router.put(
+        '/admin/settings/roles/{id}/status',
+        adminController.toggleRoleStatus,
+      );
+      Router.get('/admin/settings/users', adminController.getSystemUsers);
+      Router.post('/admin/settings/users', adminController.createSystemUser);
+      Router.put(
+        '/admin/settings/users/{id}/status',
+        adminController.toggleSystemUserStatus,
+      );
+      Router.get('/admin/resources/avatars', adminController.getAvatars);
+      Router.post('/admin/resources/avatars', adminController.createAvatar);
+      Router.get('/admin/resources/avatars/{id}', adminController.getAvatar);
+      Router.post(
+        '/admin/resources/avatars/{id}/accessories',
+        adminController.createAccessory,
+      );
+      Router.get(
+        '/admin/resources/leaderboards',
+        adminController.getLeaderboards,
+      );
+      Router.post(
+        '/admin/resources/leaderboards',
+        adminController.createLeaderboard,
+      );
+      Router.get(
+        '/admin/resources/leaderboards/{id}',
+        adminController.getLeaderboard,
+      );
+      Router.get('/admin/resources/levels', adminController.getLevels);
+      Router.post('/admin/resources/levels', adminController.createLevel);
+      Router.get('/admin/resources/levels/{id}', adminController.getLevel);
+      Router.put('/admin/resources/levels/{id}', adminController.updateLevel);
+      Router.get('/admin/notifications', adminController.getAdminNotifications);
+      Router.post(
+        '/admin/notifications/{id}/process',
+        adminController.processNotification,
+      );
+      Router.get('/admin/transactions', adminController.getAdminTransactions);
+      Router.post(
+        '/admin/transactions/{id}/resolve',
+        adminController.resolveTransaction,
+      );
+      Router.post(
+        '/admin/transactions/{id}/reverse',
+        adminController.reverseTransaction,
+      );
+    }, middleware: [AuthenticateMiddleware(), AdminMiddleware()]);
+
+    Router.group(() {
       // User profile
       Router.get('/user/profile', authController.getProfile);
       Router.put('/user/profile', authController.updateProfile);
@@ -56,12 +114,14 @@ class ApiRoute implements Route {
       Router.delete('/posts/{id}', postsController.deletePost);
       Router.post('/posts/{id}/like', postsController.toggleLike);
       Router.post('/posts/{id}/comment', postsController.addComment);
+      Router.post('/posts/{id}/repost', repostsController.createRepost);
       Router.get('/posts/{id}/comments', postsController.getComments);
 
       // Challenges
       Router.get('/challenges/{id}', challengesController.getChallenge);
       Router.post('/challenges', challengesController.createChallenge);
-      Router.post('/challenges/{id}/participate', challengesController.participate);
+      Router.post(
+          '/challenges/{id}/participate', challengesController.participate);
 
       // Wallet & Bling
       Router.get('/wallet', walletController.getWallet);

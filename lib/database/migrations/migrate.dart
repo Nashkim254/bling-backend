@@ -35,6 +35,17 @@ import 'alter_users_add_status.dart';
 import 'alter_users_add_fcm_token.dart';
 import 'alter_users_add_location.dart';
 import 'add_media_columns.dart';
+import 'add_admin_columns_to_users.dart';
+import 'create_admin_roles_table.dart';
+import 'create_admin_user_roles_table.dart';
+import 'create_avatar_resources_table.dart';
+import 'create_avatar_accessories_table.dart';
+import 'create_admin_leaderboards_table.dart';
+import 'create_admin_levels_table.dart';
+import 'create_admin_level_medals_table.dart';
+import 'create_admin_notification_cases_table.dart';
+import 'add_admin_transaction_columns.dart';
+import 'seed_admin_module.dart';
 
 void main(List<String> args) async {
   await MigrationConnection().setup();
@@ -85,9 +96,28 @@ class Migrate {
     await AlterUsersAddFcmToken().up();
     await AlterUsersAddLocation().up();
     await AddMediaColumns().up();
+    await AddAdminColumnsToUsers().up();
+    await CreateAdminRolesTable().up();
+    await CreateAdminUserRolesTable().up();
+    await CreateAvatarResourcesTable().up();
+    await CreateAvatarAccessoriesTable().up();
+    await CreateAdminLeaderboardsTable().up();
+    await CreateAdminLevelsTable().up();
+    await CreateAdminLevelMedalsTable().up();
+    await CreateAdminNotificationCasesTable().up();
+    await AddAdminTransactionColumns().up();
+    await SeedAdminModule().up();
   }
 
   dropTables() async {
+    await CreateAdminNotificationCasesTable().down();
+    await CreateAdminLevelMedalsTable().down();
+    await CreateAdminLevelsTable().down();
+    await CreateAdminLeaderboardsTable().down();
+    await CreateAvatarAccessoriesTable().down();
+    await CreateAvatarResourcesTable().down();
+    await CreateAdminUserRolesTable().down();
+    await CreateAdminRolesTable().down();
     await CreateOtpsTable().down();
     await CreateAdsTable().down();
     await CreateNotificationsTable().down();

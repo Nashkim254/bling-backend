@@ -270,8 +270,8 @@ class ChallengesController extends Controller {
         'user_id': authUserId,
         'title': request.body['title']?.toString().trim() ?? '',
         'description': request.body['description']?.toString().trim() ?? '',
-        'hashtags': request.body['hashtags']?.toString() ?? '',
-        'media': media,
+        'hashtags': _normalizeChallengeHashtags(request.body['hashtags']),
+        'media': jsonEncode(media),
         'image_url': legacyMedia['image_url'],
         'thumbnail_url': legacyMedia['thumbnail_url'],
         'video_url': legacyMedia['video_url'],
@@ -479,6 +479,30 @@ class ChallengesController extends Controller {
         'mime_type': mimeType,
       }
     ];
+  }
+
+  String _normalizeChallengeHashtags(dynamic rawHashtags) {
+    if (rawHashtags == null) return jsonEncode(<String>[]);
+    if (rawHashtags is String) {
+      final trimmed = rawHashtags.trim();
+      if (trimmed.isEmpty) return jsonEncode(<String>[]);
+      if (trimmed.startsWith('[')) return trimmed;
+      final tags = trimmed
+          .split(RegExp(r'[\s,]+'))
+          .map((item) => item.trim())
+          .where((item) => item.isNotEmpty)
+          .toList();
+      return jsonEncode(tags);
+    }
+    if (rawHashtags is List) {
+      return jsonEncode(
+        rawHashtags
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toList(),
+      );
+    }
+    return jsonEncode(<String>[]);
   }
 }
 
