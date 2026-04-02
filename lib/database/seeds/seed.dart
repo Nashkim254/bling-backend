@@ -17,6 +17,7 @@ class Seeder {
     await _seedAds();
     await _seedAdminUsersAndRoles();
     await _seedSampleUsers();
+    await _seedGroups();
     await _seedSampleTransactions();
     await _seedSampleNotifications();
     await _seedAdminResources();
@@ -25,7 +26,8 @@ class Seeder {
 
   Future<void> _seedBlingPackages() async {
     // Check if already seeded
-    final existing = await connection!.select('SELECT COUNT(*) as count FROM bling_packages', []);
+    final existing = await connection!
+        .select('SELECT COUNT(*) as count FROM bling_packages', []);
     if (((existing.first['count'] as num?)?.toInt() ?? 0) > 0) {
       print('Bling packages already seeded, skipping.');
       return;
@@ -103,7 +105,8 @@ class Seeder {
   }
 
   Future<void> _seedAds() async {
-    final existing = await connection!.select('SELECT COUNT(*) as count FROM ads', []);
+    final existing =
+        await connection!.select('SELECT COUNT(*) as count FROM ads', []);
     if (((existing.first['count'] as num?)?.toInt() ?? 0) > 0) {
       print('Ads already seeded, skipping.');
       return;
@@ -257,7 +260,8 @@ class Seeder {
             admin['role'] == 'Admin Role' ? 1500 : 900,
           ],
         );
-        await _ensureWallet(userId, admin['role'] == 'Admin Role' ? 4200 : 2100);
+        await _ensureWallet(
+            userId, admin['role'] == 'Admin Role' ? 4200 : 2100);
       } else {
         userId = existing.first['id']?.toString() ?? '';
         await connection!.statement(
@@ -268,7 +272,8 @@ class Seeder {
           ''',
           [userId],
         );
-        await _ensureWallet(userId, admin['role'] == 'Admin Role' ? 4200 : 2100);
+        await _ensureWallet(
+            userId, admin['role'] == 'Admin Role' ? 4200 : 2100);
       }
 
       final roleRows = await connection!.select(
@@ -309,7 +314,8 @@ class Seeder {
       );
 
       if (existing.isNotEmpty) {
-        await _ensureWallet(existing.first['id']?.toString() ?? '', sample[3] as int);
+        await _ensureWallet(
+            existing.first['id']?.toString() ?? '', sample[3] as int);
         continue;
       }
 
@@ -338,6 +344,123 @@ class Seeder {
     }
 
     print('Sample users seeded.');
+  }
+
+  Future<void> _seedGroups() async {
+    final existing = await connection!.select(
+      'SELECT COUNT(*) as count FROM groups',
+      [],
+    );
+    if (((existing.first['count'] as num?)?.toInt() ?? 0) > 0) {
+      print('Groups already seeded, skipping.');
+      return;
+    }
+
+    final creatorRows = await connection!.select(
+      'SELECT id FROM users WHERE is_admin = 1 ORDER BY created_at ASC LIMIT 1',
+      [],
+    );
+    final memberRows = await connection!.select(
+      'SELECT id FROM users WHERE deleted_at IS NULL ORDER BY created_at ASC LIMIT 8',
+      [],
+    );
+
+    if (creatorRows.isEmpty || memberRows.length < 3) {
+      print('Not enough users to seed groups, skipping.');
+      return;
+    }
+
+    final creatorId = creatorRows.first['id']?.toString() ?? '';
+    final now = DateTime.now();
+    final groups = [
+      {
+        'name': 'Great Blingers',
+        'description':
+            'Luxury creators and ambitious blingers sharing wins, ideas, and standout moments.',
+        'required_level': 0,
+        'medals_count': 4,
+      },
+      {
+        'name': 'Above Level 5 Circle',
+        'description':
+            'A focused group for users above level 5 to connect, collaborate, and flex premium milestones.',
+        'required_level': 5,
+        'medals_count': 3,
+      },
+      {
+        'name': 'Founders Lounge',
+        'description':
+            'Operators, founders, and serious builders discussing growth, money, and influence.',
+        'required_level': 2,
+        'medals_count': 2,
+      },
+    ];
+
+    for (var index = 0; index < groups.length; index++) {
+      final groupId = const Uuid().v4();
+      final conversationId = const Uuid().v4();
+      final createdAt = now.subtract(Duration(days: index)).toIso8601String();
+      final group = groups[index];
+
+      await connection!.statement(
+        '''
+        INSERT INTO conversations (id, type, name, avatar, created_by, created_at, updated_at)
+        VALUES (\$1, 'group', \$2, '', \$3, \$4, \$4)
+        ''',
+        [conversationId, group['name'], creatorId, createdAt],
+      );
+
+      await connection!.statement(
+        '''
+        INSERT INTO groups
+          (id, name, description, avatar, cover_image, required_level, medals_count,
+           visibility, is_active, created_by, conversation_id, created_at, updated_at)
+        VALUES
+          (\$1, \$2, \$3, '', '', \$4, \$5, 'public', 1, \$6, \$7, \$8, \$8)
+        ''',
+        [
+          groupId,
+          group['name'],
+          group['description'],
+          group['required_level'],
+          group['medals_count'],
+          creatorId,
+          conversationId,
+          createdAt,
+        ],
+      );
+
+      final selectedMembers = memberRows.take(4 + index).toList();
+      for (var memberIndex = 0;
+          memberIndex < selectedMembers.length;
+          memberIndex++) {
+        final memberId = selectedMembers[memberIndex]['id']?.toString() ?? '';
+        final memberRole = memberId == creatorId ? 'admin' : 'member';
+        final joinedAt = now
+            .subtract(Duration(days: index, minutes: memberIndex * 3))
+            .toIso8601String();
+
+        await connection!.statement(
+          '''
+          INSERT INTO group_members
+            (id, group_id, user_id, role, status, joined_at, created_at, updated_at)
+          VALUES (\$1, \$2, \$3, \$4, 'active', \$5, \$5, \$5)
+          ''',
+          [const Uuid().v4(), groupId, memberId, memberRole, joinedAt],
+        );
+
+        await connection!.statement(
+          '''
+          INSERT INTO conversation_members
+            (id, conversation_id, user_id, role, joined_at, created_at, updated_at)
+          VALUES (\$1, \$2, \$3, \$4, \$5, \$5, \$5)
+          ''',
+          [const Uuid().v4(), conversationId, memberId, memberRole, joinedAt],
+        );
+      }
+    }
+
+    print('Groups seeded.');
   }
 
   Future<void> _seedSampleTransactions() async {
@@ -551,9 +674,21 @@ class Seeder {
     if (((leaderboardCount.first['count'] as num?)?.toInt() ?? 0) == 0) {
       for (final item in const [
         {'name': 'Global Leaderboard', 'metric': 'bling', 'users_limit': 20},
-        {'name': "Today's Leaderboard", 'metric': 'connections', 'users_limit': 20},
-        {'name': "This Week's Leaderboard", 'metric': 'friend_invites', 'users_limit': 20},
-        {'name': 'January 2024 Leaderboard', 'metric': 'bling', 'users_limit': 10},
+        {
+          'name': "Today's Leaderboard",
+          'metric': 'connections',
+          'users_limit': 20
+        },
+        {
+          'name': "This Week's Leaderboard",
+          'metric': 'friend_invites',
+          'users_limit': 20
+        },
+        {
+          'name': 'January 2024 Leaderboard',
+          'metric': 'bling',
+          'users_limit': 10
+        },
         {'name': 'All Time Leaderboard', 'metric': 'bling', 'users_limit': 50},
       ]) {
         await connection!.statement(

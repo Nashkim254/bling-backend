@@ -8,6 +8,7 @@ import 'package:bling/app/http/controllers/otp_controller.dart';
 import 'package:bling/app/http/controllers/challenges_controller.dart';
 import 'package:bling/app/http/controllers/chat_controller.dart';
 import 'package:bling/app/http/controllers/follow_controller.dart';
+import 'package:bling/app/http/controllers/groups_controller.dart';
 import 'package:bling/app/http/controllers/leaderboard_controller.dart';
 import 'package:bling/app/http/controllers/notification_controller.dart';
 import 'package:bling/app/http/controllers/posts_controller.dart';
@@ -37,7 +38,6 @@ class ApiRoute implements Route {
 
     // ─── Public Routes ────────────────────────────────────────────────
     Router.get('/users', authController.getUsers);
-    Router.get('/users/{id}', authController.getUserById);
     Router.get('/leaderboard', leaderboardController.getLeaderboard);
     Router.get('/challenges', challengesController.getChallenges);
     Router.get('/ads', adController.getAds);
@@ -96,6 +96,9 @@ class ApiRoute implements Route {
         '/admin/transactions/{id}/reverse',
         adminController.reverseTransaction,
       );
+      Router.get('/admin/groups', groupsController.getAdminGroups);
+      Router.post('/admin/groups', groupsController.createAdminGroup);
+      Router.put('/admin/groups/{id}', groupsController.updateAdminGroup);
     }, middleware: [AuthenticateMiddleware(), AdminMiddleware()]);
 
     Router.group(() {
@@ -105,6 +108,7 @@ class ApiRoute implements Route {
       Router.put('/user/fcm-token', authController.updateFcmToken);
       Router.put('/user/location', authController.updateLocation);
       Router.get('/users/nearby', authController.getNearbyUsers);
+      Router.get('/users/{id}', authController.getUserById);
 
       // Feed & Posts
       Router.get('/feed', postsController.getFeed);
@@ -122,6 +126,12 @@ class ApiRoute implements Route {
       Router.post('/challenges', challengesController.createChallenge);
       Router.post(
           '/challenges/{id}/participate', challengesController.participate);
+
+      // Groups
+      Router.get('/groups', groupsController.getGroups);
+      Router.get('/groups/{id}', groupsController.getGroup);
+      Router.post('/groups/{id}/join', groupsController.joinGroup);
+      Router.post('/groups/{id}/leave', groupsController.leaveGroup);
 
       // Wallet & Bling
       Router.get('/wallet', walletController.getWallet);

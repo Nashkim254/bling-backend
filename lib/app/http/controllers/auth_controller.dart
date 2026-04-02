@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
@@ -56,6 +57,7 @@ class AuthController extends Controller {
       'avatar': body['avatar'] ?? '',
       'cover_image': '',
       'bio': '',
+      'social_links': '[]',
       'account_type': 'public',
       'bling_score': 0,
       'is_verified': 0,
@@ -152,6 +154,7 @@ class AuthController extends Controller {
         'avatar': user['avatar']?.toString(),
         'cover_image': user['cover_image']?.toString(),
         'bio': user['bio']?.toString(),
+        'social_links': _decodeSocialLinks(user['social_links']),
         'account_type': user['account_type']?.toString(),
         'bling_score': user['bling_score'],
         'is_verified': user['is_verified'],
@@ -247,6 +250,7 @@ class AuthController extends Controller {
         'avatar': user['avatar'],
         'cover_image': user['cover_image'],
         'bio': user['bio'],
+        'social_links': _decodeSocialLinks(user['social_links']),
         'account_type': user['account_type'],
         'bling_score': userScore,
         'is_verified': user['is_verified'],
@@ -273,6 +277,10 @@ class AuthController extends Controller {
     body.remove('password');
     body.remove('email');
     body.remove('auth_user_id');
+    if (body.containsKey('social_links')) {
+      body['social_links'] =
+          jsonEncode(_normalizeSocialLinks(body['social_links']));
+    }
     body['updated_at'] = DateTime.now().toIso8601String();
 
     await User().query().where('id', '=', userId).update(body);
@@ -345,6 +353,7 @@ class AuthController extends Controller {
         'avatar': user['avatar'],
         'cover_image': user['cover_image'],
         'bio': user['bio'],
+        'social_links': _decodeSocialLinks(user['social_links']),
         'bling_score': userScore,
         'is_verified': user['is_verified'],
         'is_following': isFollowing,
@@ -357,6 +366,66 @@ class AuthController extends Controller {
         'created_at': user['created_at'].toString(),
       }
     }, HttpStatus.ok);
+  }
+
+  List<Map<String, String>> _decodeSocialLinks(dynamic value) {
+    if (value == null) return [];
+    dynamic decoded = value;
+    if (value is String) {
+      try {
+        decoded = jsonDecode(value);
+      } catch (_) {
+        return [];
+      }
+    }
+    if (decoded is! List) return [];
+
+    return decoded
+        .map<Map<String, String>?>((item) {
+          if (item is! Map) return null;
+          final platform =
+              item['platform']?.toString().trim().toLowerCase() ?? '';
+          final url = item['url']?.toString().trim() ?? '';
+          if (platform.isEmpty || url.isEmpty) return null;
+          return {'platform': platform, 'url': url};
+        })
+        .whereType<Map<String, String>>()
+        .toList();
+  }
+
+  List<Map<String, String>> _normalizeSocialLinks(dynamic input) {
+    const allowed = {
+      'instagram': ['instagram.com'],
+      'spotify': ['spotify.com', 'open.spotify.com'],
+      'facebook': ['facebook.com', 'fb.com'],
+    };
+    dynamic decoded = input;
+    if (input is String) {
+      try {
+        decoded = jsonDecode(input);
+      } catch (_) {
+        return [];
+      }
+    }
+    if (decoded is! List) return [];
+
+    return decoded
+        .map<Map<String, String>?>((item) {
+          if (item is! Map) return null;
+          final platform =
+              item['platform']?.toString().trim().toLowerCase() ?? '';
+          final url = item['url']?.toString().trim() ?? '';
+          if (!allowed.containsKey(platform) || url.isEmpty) return null;
+          final parsed =
+              Uri.tryParse(url.contains('://') ? url : 'https://$url');
+          final host = parsed?.host.toLowerCase() ?? '';
+          final isValidHost = allowed[platform]!
+              .any((domain) => host == domain || host.endsWith('.$domain'));
+          if (!isValidHost) return null;
+          return {'platform': platform, 'url': url};
+        })
+        .whereType<Map<String, String>>()
+        .toList();
   }
 
   /// GET /api/users?search=&page=&limit=
@@ -512,31 +581,48 @@ class AuthController extends Controller {
     final radius =
         double.tryParse(request.input('radius')?.toString() ?? '20') ?? 20.0;
 
-    // Haversine formula in PostgreSQL
+    final me = await User()
+        .query()
+        .select(['latitude', 'longitude'])
+        .where('id', '=', userId)
+        .first();
+
+    final myLat = double.tryParse(me?['latitude']?.toString() ?? '');
+    final myLng = double.tryParse(me?['longitude']?.toString() ?? '');
+    if (myLat == null || myLng == null) {
+      return Response.json({'users': []}, 200);
+    }
+
+    // Haversine formula in PostgreSQL using the caller's concrete coordinates.
     final rows = await connection!.select("""
-      SELECT id, name, username, avatar, latitude, longitude,
-        (6371 * acos(
-          cos(radians((SELECT latitude FROM users WHERE id = \$1))) *
-          cos(radians(latitude)) *
-          cos(radians(longitude) - radians((SELECT longitude FROM users WHERE id = \$1))) +
-          sin(radians((SELECT latitude FROM users WHERE id = \$1))) *
-          sin(radians(latitude))
-        )) AS distance_km
-      FROM users
-      WHERE id != \$1
-        AND latitude IS NOT NULL
-        AND longitude IS NOT NULL
-        AND status = 'active'
-      HAVING (6371 * acos(
-          cos(radians((SELECT latitude FROM users WHERE id = \$1))) *
-          cos(radians(latitude)) *
-          cos(radians(longitude) - radians((SELECT longitude FROM users WHERE id = \$1))) +
-          sin(radians((SELECT latitude FROM users WHERE id = \$1))) *
-          sin(radians(latitude))
-        )) < \$2
+      SELECT *
+      FROM (
+        SELECT
+          id,
+          name,
+          username,
+          avatar,
+          latitude,
+          longitude,
+          (
+            6371 * acos(
+              cos(radians(\$1)) *
+              cos(radians(latitude)) *
+              cos(radians(longitude) - radians(\$2)) +
+              sin(radians(\$1)) *
+              sin(radians(latitude))
+            )
+          ) AS distance_km
+        FROM users
+        WHERE id != \$3
+          AND latitude IS NOT NULL
+          AND longitude IS NOT NULL
+          AND status = 'active'
+      ) nearby
+      WHERE distance_km < \$4
       ORDER BY distance_km ASC
       LIMIT 100
-    """, [userId, radius]);
+    """, [myLat, myLng, userId, radius]);
 
     return Response.json({'users': rows}, 200);
   }

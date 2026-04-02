@@ -26,6 +26,8 @@ import 'create_ad_impressions_table.dart';
 import 'create_ad_clicks_table.dart';
 import 'create_conversations_table.dart';
 import 'create_conversation_members_table.dart';
+import 'create_groups_table.dart';
+import 'create_group_members_table.dart';
 import 'create_message_reactions_table.dart';
 import 'alter_chats_add_chat_fields.dart';
 import 'alter_comments_add_parent_id.dart';
@@ -34,6 +36,7 @@ import 'create_reports_table.dart';
 import 'alter_users_add_status.dart';
 import 'alter_users_add_fcm_token.dart';
 import 'alter_users_add_location.dart';
+import 'add_social_links_to_users.dart';
 import 'add_media_columns.dart';
 import 'add_admin_columns_to_users.dart';
 import 'create_admin_roles_table.dart';
@@ -87,6 +90,8 @@ class Migrate {
     await CreateAdClicksTable().up();
     await CreateConversationsTable().up();
     await CreateConversationMembersTable().up();
+    await CreateGroupsTable().up();
+    await CreateGroupMembersTable().up();
     await CreateMessageReactionsTable().up();
     await AlterChatsAddChatFields().up();
     await AlterCommentsAddParentId().up();
@@ -95,6 +100,7 @@ class Migrate {
     await AlterUsersAddStatus().up();
     await AlterUsersAddFcmToken().up();
     await AlterUsersAddLocation().up();
+    await AddSocialLinksToUsers().up();
     await AddMediaColumns().up();
     await AddAdminColumnsToUsers().up();
     await CreateAdminRolesTable().up();
@@ -111,6 +117,8 @@ class Migrate {
 
   dropTables() async {
     await CreateAdminNotificationCasesTable().down();
+    await CreateGroupMembersTable().down();
+    await CreateGroupsTable().down();
     await CreateAdminLevelMedalsTable().down();
     await CreateAdminLevelsTable().down();
     await CreateAdminLeaderboardsTable().down();
@@ -118,6 +126,7 @@ class Migrate {
     await CreateAvatarResourcesTable().down();
     await CreateAdminUserRolesTable().down();
     await CreateAdminRolesTable().down();
+    await AddSocialLinksToUsers().down();
     await CreateOtpsTable().down();
     await CreateAdsTable().down();
     await CreateNotificationsTable().down();
