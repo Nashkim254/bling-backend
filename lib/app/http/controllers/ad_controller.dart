@@ -60,7 +60,8 @@ class AdController extends Controller {
       ''', [count]);
 
       return Response.json({
-        'ads': (ads)
+        'ads': ads
+            .whereType<Map<String, dynamic>>()
             .map((ad) => {
                   'id': ad['id'],
                   'title': ad['title'],

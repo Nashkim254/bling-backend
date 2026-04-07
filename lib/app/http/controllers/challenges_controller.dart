@@ -9,12 +9,21 @@ import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
 class ChallengesController extends Controller {
+  String _authUserId(Request request) {
+    final requestUserId = request.input('auth_user_id') as String? ?? '';
+    if (requestUserId.isNotEmpty) {
+      return requestUserId;
+    }
+
+    return Auth().id()?.toString() ?? '';
+  }
+
   /// GET /api/challenges?page=&limit=
   Future<Response> getChallenges(Request request) async {
     final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
     final limit =
         int.tryParse(request.input('limit')?.toString() ?? '10') ?? 10;
-    final authUserId = request.input('auth_user_id') as String? ?? '';
+    final authUserId = _authUserId(request);
 
     try {
       final challenges = await ChallengesModel()
@@ -81,11 +90,13 @@ class ChallengesController extends Controller {
             .where('user_id', '=', authUserId)
             .get();
         enteredChallengeIds = (entries as List)
+            .whereType<Map>()
             .map((e) => e['challenge_id']?.toString() ?? '')
             .toList();
       }
 
-      final data = (challenges['data'] as List<dynamic>).map((ch) {
+      final rows = (challenges['data'] as List<dynamic>).whereType<Map>();
+      final data = rows.map((ch) {
         return {
           'id': ch['id'],
           'user_id': ch['user_id'],
@@ -142,7 +153,7 @@ class ChallengesController extends Controller {
   /// GET /api/challenges/:id  — single challenge with participants
   Future<Response> getChallenge(Request request, [dynamic _]) async {
     final challengeId = request.params()['id'] as String? ?? '';
-    final authUserId = request.input('auth_user_id') as String? ?? '';
+    final authUserId = _authUserId(request);
 
     try {
       final rows = await connection!.select('''
@@ -182,6 +193,8 @@ class ChallengesController extends Controller {
         isEntered = entry != null;
       }
 
+      final participantRows = participants.whereType<Map>();
+
       return Response.json({
         'challenge': {
           'id': ch['id']?.toString(),
@@ -217,7 +230,7 @@ class ChallengesController extends Controller {
           'is_entered': isEntered,
           'created_at': ch['created_at'].toString(),
         },
-        'participants': participants
+        'participants': participantRows
             .map((p) => {
                   'id': p['id']?.toString(),
                   'user_id': p['user_id']?.toString(),
@@ -245,7 +258,7 @@ class ChallengesController extends Controller {
       'description.required': 'Description is required',
     });
 
-    final authUserId = request.input('auth_user_id') as String? ?? '';
+    final authUserId = _authUserId(request);
     if (authUserId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
@@ -303,7 +316,7 @@ class ChallengesController extends Controller {
   /// POST /api/challenges/:id/participate  (authenticated)
   Future<Response> participate(Request request, [dynamic _]) async {
     final challengeId = request.params()['id'] as String? ?? '';
-    final authUserId = request.input('auth_user_id') as String? ?? '';
+    final authUserId = _authUserId(request);
 
     if (authUserId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);

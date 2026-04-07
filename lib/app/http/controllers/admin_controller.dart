@@ -444,6 +444,8 @@ class AdminController extends Controller {
       'accessories': accessoryRows
           .map((row) => {
                 'id': row['id']?.toString() ?? '',
+                'category':
+                    _cleanString(row['category'], fallback: 'accessory'),
                 'name': _cleanString(row['name']),
                 'image_url': _cleanString(row['image_url']),
                 'price_bling': _toInt(row['price_bling']),
@@ -469,16 +471,17 @@ class AdminController extends Controller {
     await connection!.statement(
       '''
       INSERT INTO avatar_accessories (
-        id, avatar_id, name, image_url, price_bling, is_paid, owners_count,
+        id, avatar_id, category, name, image_url, price_bling, is_paid, owners_count,
         eligible_blingers, status, created_by, created_at, updated_at
       )
       VALUES (
-        \$1, \$2, \$3, \$4, \$5, \$6, 0, \$7, 'active', \$8, NOW(), NOW()
+        \$1, \$2, \$3, \$4, \$5, \$6, \$7, 0, \$8, 'active', \$9, NOW(), NOW()
       )
       ''',
       [
         accessoryId,
         avatarId,
+        body['category']?.toString() == 'outfit' ? 'outfit' : 'accessory',
         body['name']?.toString() ?? 'Accessory',
         body['image_url']?.toString() ?? '',
         _toInt(body['price_bling']),
@@ -915,7 +918,7 @@ class AdminController extends Controller {
 
     final medalRows = await connection!.select(
       '''
-      SELECT id, level_id, name, metric_label, image_url, sort_order
+      SELECT id, level_id, name, metric_label, image_url, sort_order, price_bling, is_paid
       FROM admin_level_medals
       WHERE status = 'active'
       ORDER BY sort_order ASC, created_at ASC
@@ -932,6 +935,8 @@ class AdminController extends Controller {
         'metric_label': row['metric_label']?.toString() ?? '',
         'image_url': row['image_url']?.toString() ?? '',
         'sort_order': _toInt(row['sort_order']),
+        'price_bling': _toInt(row['price_bling']),
+        'is_paid': _toInt(row['is_paid']) == 1,
       });
     }
 
@@ -1021,9 +1026,9 @@ class AdminController extends Controller {
       await connection!.statement(
         '''
         INSERT INTO admin_level_medals (
-          id, level_id, name, metric_label, image_url, sort_order, status, created_by, created_at, updated_at
+          id, level_id, name, metric_label, image_url, sort_order, price_bling, is_paid, status, created_by, created_at, updated_at
         )
-        VALUES (\$1, \$2, \$3, \$4, \$5, \$6, 'active', \$7, NOW(), NOW())
+        VALUES (\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, 'active', \$9, NOW(), NOW())
         ''',
         [
           const Uuid().v4(),
@@ -1032,6 +1037,8 @@ class AdminController extends Controller {
           medal['metric_label']?.toString() ?? '',
           medal['image_url']?.toString() ?? '',
           index,
+          _toInt(medal['price_bling']),
+          _toInt(medal['price_bling']) > 0 ? 1 : 0,
           adminId.isEmpty ? null : adminId,
         ],
       );

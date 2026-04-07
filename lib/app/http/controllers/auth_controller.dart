@@ -240,6 +240,8 @@ class AuthController extends Controller {
       [userScore],
     );
     final globalRank = ((rankRows.first['cnt'] as num?)?.toInt() ?? 0) + 1;
+    final medals = await _loadUserMedals(userId);
+    final customization = await _loadUserCustomization(userId, user);
 
     return Response.json({
       'user': {
@@ -259,6 +261,8 @@ class AuthController extends Controller {
         'following_count': followingCount,
         'posts_count': postsCount,
         'global_rank': globalRank,
+        'medals': medals,
+        ...customization,
         'created_at': user['created_at'].toString(),
       }
     }, HttpStatus.ok);
@@ -344,6 +348,8 @@ class AuthController extends Controller {
       [userScore],
     );
     final globalRank = ((rankRows.first['cnt'] as num?)?.toInt() ?? 0) + 1;
+    final medals = await _loadUserMedals(userId);
+    final customization = await _loadUserCustomization(userId, user);
 
     return Response.json({
       'user': {
@@ -363,9 +369,77 @@ class AuthController extends Controller {
         'following_count': followingCount,
         'posts_count': postsCount,
         'global_rank': globalRank,
+        'medals': medals,
+        ...customization,
         'created_at': user['created_at'].toString(),
       }
     }, HttpStatus.ok);
+  }
+
+  Future<List<Map<String, dynamic>>> _loadUserMedals(String userId) async {
+    final medalRows = await connection!.select(
+      '''
+      SELECT m.id, m.name, m.metric_label, m.image_url, umi.purchased_at
+      FROM user_medal_inventory umi
+      INNER JOIN admin_level_medals m ON m.id = umi.medal_id
+      WHERE umi.user_id = \$1
+      ORDER BY umi.purchased_at DESC, m.sort_order ASC
+      ''',
+      [userId],
+    );
+
+    return medalRows
+        .map((row) => {
+              'id': row['id']?.toString() ?? '',
+              'name': row['name']?.toString() ?? '',
+              'description': row['metric_label']?.toString() ?? '',
+              'image_url': row['image_url']?.toString() ?? '',
+              'purchased_at': row['purchased_at']?.toString() ?? '',
+            })
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> _loadUserCustomization(
+    String userId,
+    Map<String, dynamic> user,
+  ) async {
+    final equippedAvatarId = user['equipped_avatar_id']?.toString() ?? '';
+    final equippedOutfitId = user['equipped_outfit_id']?.toString() ?? '';
+    final equippedAccessoryId = user['equipped_accessory_id']?.toString() ?? '';
+
+    final avatarRows = equippedAvatarId.isEmpty
+        ? const <Map<String, dynamic>>[]
+        : await connection!.select(
+            'SELECT image_url FROM avatar_resources WHERE id = \$1 LIMIT 1',
+            [equippedAvatarId],
+          );
+    final outfitRows = equippedOutfitId.isEmpty
+        ? const <Map<String, dynamic>>[]
+        : await connection!.select(
+            'SELECT image_url FROM avatar_accessories WHERE id = \$1 LIMIT 1',
+            [equippedOutfitId],
+          );
+    final accessoryRows = equippedAccessoryId.isEmpty
+        ? const <Map<String, dynamic>>[]
+        : await connection!.select(
+            'SELECT image_url FROM avatar_accessories WHERE id = \$1 LIMIT 1',
+            [equippedAccessoryId],
+          );
+
+    return {
+      'equipped_avatar_id': equippedAvatarId,
+      'equipped_outfit_id': equippedOutfitId,
+      'equipped_accessory_id': equippedAccessoryId,
+      'equipped_avatar_url': avatarRows.isNotEmpty
+          ? avatarRows.first['image_url']?.toString() ?? ''
+          : '',
+      'equipped_outfit_url': outfitRows.isNotEmpty
+          ? outfitRows.first['image_url']?.toString() ?? ''
+          : '',
+      'equipped_accessory_url': accessoryRows.isNotEmpty
+          ? accessoryRows.first['image_url']?.toString() ?? ''
+          : '',
+    };
   }
 
   List<Map<String, String>> _decodeSocialLinks(dynamic value) {
@@ -451,8 +525,12 @@ class AuthController extends Controller {
             .where('blocked_user_id', '=', authUserId)
             .get();
         excludedIds = [
-          ...(blockedByMe as List).map((r) => r['blocked_user_id'].toString()),
-          ...(blockedMe as List).map((r) => r['user_id'].toString()),
+          ...(blockedByMe as List)
+              .whereType<Map>()
+              .map((r) => r['blocked_user_id'].toString()),
+          ...(blockedMe as List)
+              .whereType<Map>()
+              .map((r) => r['user_id'].toString()),
         ];
       }
 

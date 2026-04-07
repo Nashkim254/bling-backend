@@ -7,6 +7,7 @@ import 'package:bling/app/http/controllers/block_controller.dart';
 import 'package:bling/app/http/controllers/otp_controller.dart';
 import 'package:bling/app/http/controllers/challenges_controller.dart';
 import 'package:bling/app/http/controllers/chat_controller.dart';
+import 'package:bling/app/http/controllers/customization_controller.dart';
 import 'package:bling/app/http/controllers/follow_controller.dart';
 import 'package:bling/app/http/controllers/groups_controller.dart';
 import 'package:bling/app/http/controllers/leaderboard_controller.dart';
@@ -129,9 +130,15 @@ class ApiRoute implements Route {
 
       // Groups
       Router.get('/groups', groupsController.getGroups);
+      Router.post('/groups', groupsController.createGroup);
       Router.get('/groups/{id}', groupsController.getGroup);
       Router.post('/groups/{id}/join', groupsController.joinGroup);
       Router.post('/groups/{id}/leave', groupsController.leaveGroup);
+      Router.get('/groups/{id}/requests', groupsController.getGroupRequests);
+      Router.post(
+        '/groups/{id}/requests/{userId}',
+        groupsController.handleGroupRequest,
+      );
 
       // Wallet & Bling
       Router.get('/wallet', walletController.getWallet);
@@ -139,6 +146,27 @@ class ApiRoute implements Route {
       Router.post('/bling/purchase', walletController.purchaseBling);
       Router.post('/bling/purchase/verify', purchaseController.verifyPurchase);
       Router.post('/bling/transfer', walletController.transferBling);
+      Router.get('/customization/catalog', customizationController.getCatalog);
+      Router.post(
+        '/customization/avatars/{id}/purchase',
+        customizationController.purchaseAvatar,
+      );
+      Router.post(
+        '/customization/avatars/{id}/equip',
+        customizationController.equipAvatar,
+      );
+      Router.post(
+        '/customization/medals/{id}/purchase',
+        customizationController.purchaseMedal,
+      );
+      Router.post(
+        '/customization/accessories/{id}/purchase',
+        customizationController.purchaseAccessory,
+      );
+      Router.post(
+        '/customization/accessories/{id}/equip',
+        customizationController.equipAccessory,
+      );
 
       // Follow
       Router.post('/follow/{id}', followController.follow);

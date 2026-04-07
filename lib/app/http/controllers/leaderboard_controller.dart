@@ -3,6 +3,12 @@ import 'dart:io';
 import 'package:vania/vania.dart';
 
 class LeaderboardController extends Controller {
+  String _authUserId(Request request) {
+    final requestUserId = request.input('auth_user_id')?.toString() ?? '';
+    if (requestUserId.isNotEmpty) return requestUserId;
+    return Auth().id()?.toString() ?? '';
+  }
+
   /// GET /api/leaderboard?period=global|daily|weekly|monthly
   ///   &sort_by=score|balance
   ///   &following_only=true
@@ -17,7 +23,7 @@ class LeaderboardController extends Controller {
     final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
     final limit =
         int.tryParse(request.input('limit')?.toString() ?? '50') ?? 50;
-    final authUserId = request.input('auth_user_id')?.toString() ?? '';
+    final authUserId = _authUserId(request);
 
     try {
       // Period date filter
@@ -91,10 +97,12 @@ class LeaderboardController extends Controller {
 
       // Find auth user's rank
       int? myRank;
+      final leaderRows = leaders.whereType<Map<String, dynamic>>().toList();
+
       if (authUserId.isNotEmpty) {
-        final idx = leaders.indexWhere((l) => l['id'] == authUserId);
+        final idx = leaderRows.indexWhere((l) => l['id'] == authUserId);
         if (idx >= 0) {
-          myRank = (leaders[idx]['rank'] as num?)?.toInt();
+          myRank = (leaderRows[idx]['rank'] as num?)?.toInt();
         }
       }
 
@@ -104,7 +112,7 @@ class LeaderboardController extends Controller {
           'sort_by': sortBy,
           'page': page,
           'my_rank': myRank,
-          'data': leaders
+          'data': leaderRows
               .map((l) => {
                     'rank': (l['rank'] as num?)?.toInt(),
                     'id': l['id'],

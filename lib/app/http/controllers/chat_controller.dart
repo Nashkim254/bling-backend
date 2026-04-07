@@ -8,13 +8,22 @@ import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
 class ChatController extends Controller {
+  String _authUserId(Request request) {
+    final requestUserId = request.input('auth_user_id')?.toString() ?? '';
+    if (requestUserId.isNotEmpty) {
+      return requestUserId;
+    }
+
+    return Auth().id()?.toString() ?? '';
+  }
+
   // ── Conversations ────────────────────────────────────────────────────────
 
   /// GET /api/chats  — list all conversations for the auth user
   /// Includes DMs and groups, sorted by last_message_at DESC
   /// Pinned conversations float to top.
   Future<Response> getConversations(Request request) async {
-    final me = request.input('auth_user_id')?.toString() ?? '';
+    final me = _authUserId(request);
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
     try {
@@ -47,7 +56,10 @@ class ChatController extends Controller {
       ''', [me]);
 
       return Response.json({
-        'conversations': rows.map((r) => _formatConversation(r)).toList(),
+        'conversations': rows
+            .whereType<Map<String, dynamic>>()
+            .map(_formatConversation)
+            .toList(),
       }, HttpStatus.ok);
     } catch (e) {
       return Response.json({'message': 'Error', 'error': e.toString()}, 500);
@@ -56,7 +68,7 @@ class ChatController extends Controller {
 
   /// GET /api/chats/archived
   Future<Response> getArchivedConversations(Request request) async {
-    final me = request.input('auth_user_id')?.toString() ?? '';
+    final me = _authUserId(request);
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
     try {
@@ -78,7 +90,10 @@ class ChatController extends Controller {
       ''', [me]);
 
       return Response.json({
-        'conversations': rows.map((r) => _formatConversation(r)).toList(),
+        'conversations': rows
+            .whereType<Map<String, dynamic>>()
+            .map(_formatConversation)
+            .toList(),
       }, HttpStatus.ok);
     } catch (e) {
       return Response.json({'message': 'Error', 'error': e.toString()}, 500);
@@ -88,7 +103,7 @@ class ChatController extends Controller {
   /// POST /api/chats/create  — create DM or group conversation
   /// Body: { type: 'dm'|'group', member_ids: [...], name?, avatar? }
   Future<Response> createConversation(Request request) async {
-    final me = request.input('auth_user_id')?.toString() ?? '';
+    final me = _authUserId(request);
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
     final body = request.body;
@@ -135,9 +150,11 @@ class ChatController extends Controller {
           LIMIT 1
         ''', [me, partnerId]);
 
-        if (existing.isNotEmpty) {
+        final existingRows =
+            existing.whereType<Map<String, dynamic>>().toList();
+        if (existingRows.isNotEmpty) {
           return Response.json({
-            'conversation_id': existing.first['id']?.toString(),
+            'conversation_id': existingRows.first['id']?.toString(),
             'is_new': false,
           }, HttpStatus.ok);
         }
@@ -180,7 +197,7 @@ class ChatController extends Controller {
 
   /// DELETE /api/chats/:id  — delete conversation (removes member entry)
   Future<Response> deleteConversation(Request request, [dynamic _]) async {
-    final me = request.input('auth_user_id')?.toString() ?? '';
+    final me = _authUserId(request);
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
@@ -193,7 +210,7 @@ class ChatController extends Controller {
 
   /// POST /api/chats/:id/pin
   Future<Response> pinConversation(Request request, [dynamic _]) async {
-    final me = request.input('auth_user_id')?.toString() ?? '';
+    final me = _authUserId(request);
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
@@ -206,7 +223,7 @@ class ChatController extends Controller {
 
   /// POST /api/chats/:id/unpin
   Future<Response> unpinConversation(Request request, [dynamic _]) async {
-    final me = request.input('auth_user_id')?.toString() ?? '';
+    final me = _authUserId(request);
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
@@ -219,7 +236,7 @@ class ChatController extends Controller {
 
   /// POST /api/chats/:id/archive
   Future<Response> archiveConversation(Request request, [dynamic _]) async {
-    final me = request.input('auth_user_id')?.toString() ?? '';
+    final me = _authUserId(request);
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
@@ -232,7 +249,7 @@ class ChatController extends Controller {
 
   /// POST /api/chats/:id/unarchive
   Future<Response> unarchiveConversation(Request request, [dynamic _]) async {
-    final me = request.input('auth_user_id')?.toString() ?? '';
+    final me = _authUserId(request);
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
@@ -245,7 +262,7 @@ class ChatController extends Controller {
 
   /// POST /api/chats/:id/read  — mark all messages in conversation as read
   Future<Response> markConversationRead(Request request, [dynamic _]) async {
-    final me = request.input('auth_user_id')?.toString() ?? '';
+    final me = _authUserId(request);
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
@@ -264,7 +281,7 @@ class ChatController extends Controller {
 
   /// GET /api/chats/:id/messages?page=&limit=
   Future<Response> getMessages(Request request, [dynamic _]) async {
-    final me = request.input('auth_user_id')?.toString() ?? '';
+    final me = _authUserId(request);
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
@@ -348,7 +365,7 @@ class ChatController extends Controller {
   /// POST /api/chats/:id/messages  — send message to conversation
   /// Body: { content?, message_type?, file_url?, file_name?, file_size?, reply_to_id? }
   Future<Response> sendMessage(Request request, [dynamic _]) async {
-    final me = request.input('auth_user_id')?.toString() ?? '';
+    final me = _authUserId(request);
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 

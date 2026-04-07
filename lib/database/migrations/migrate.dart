@@ -28,6 +28,7 @@ import 'create_conversations_table.dart';
 import 'create_conversation_members_table.dart';
 import 'create_groups_table.dart';
 import 'create_group_members_table.dart';
+import 'add_group_discovery_fields.dart';
 import 'create_message_reactions_table.dart';
 import 'alter_chats_add_chat_fields.dart';
 import 'alter_comments_add_parent_id.dart';
@@ -43,11 +44,17 @@ import 'create_admin_roles_table.dart';
 import 'create_admin_user_roles_table.dart';
 import 'create_avatar_resources_table.dart';
 import 'create_avatar_accessories_table.dart';
+import 'add_category_to_avatar_accessories.dart';
 import 'create_admin_leaderboards_table.dart';
 import 'create_admin_levels_table.dart';
 import 'create_admin_level_medals_table.dart';
 import 'create_admin_notification_cases_table.dart';
 import 'add_admin_transaction_columns.dart';
+import 'create_user_avatar_inventory_table.dart';
+import 'create_user_accessory_inventory_table.dart';
+import 'create_user_medal_inventory_table.dart';
+import 'add_equipped_customization_to_users.dart';
+import 'add_price_to_admin_level_medals.dart';
 import 'seed_admin_module.dart';
 
 void main(List<String> args) async {
@@ -92,6 +99,7 @@ class Migrate {
     await CreateConversationMembersTable().up();
     await CreateGroupsTable().up();
     await CreateGroupMembersTable().up();
+    await AddGroupDiscoveryFields().up();
     await CreateMessageReactionsTable().up();
     await AlterChatsAddChatFields().up();
     await AlterCommentsAddParentId().up();
@@ -107,9 +115,15 @@ class Migrate {
     await CreateAdminUserRolesTable().up();
     await CreateAvatarResourcesTable().up();
     await CreateAvatarAccessoriesTable().up();
+    await AddCategoryToAvatarAccessories().up();
     await CreateAdminLeaderboardsTable().up();
     await CreateAdminLevelsTable().up();
     await CreateAdminLevelMedalsTable().up();
+    await AddPriceToAdminLevelMedals().up();
+    await AddEquippedCustomizationToUsers().up();
+    await CreateUserAvatarInventoryTable().up();
+    await CreateUserAccessoryInventoryTable().up();
+    await CreateUserMedalInventoryTable().up();
     await CreateAdminNotificationCasesTable().up();
     await AddAdminTransactionColumns().up();
     await SeedAdminModule().up();
@@ -117,11 +131,18 @@ class Migrate {
 
   dropTables() async {
     await CreateAdminNotificationCasesTable().down();
+    await AddGroupDiscoveryFields().down();
     await CreateGroupMembersTable().down();
     await CreateGroupsTable().down();
+    await CreateUserMedalInventoryTable().down();
+    await CreateUserAccessoryInventoryTable().down();
+    await CreateUserAvatarInventoryTable().down();
+    await AddEquippedCustomizationToUsers().down();
+    await AddPriceToAdminLevelMedals().down();
     await CreateAdminLevelMedalsTable().down();
     await CreateAdminLevelsTable().down();
     await CreateAdminLeaderboardsTable().down();
+    await AddCategoryToAvatarAccessories().down();
     await CreateAvatarAccessoriesTable().down();
     await CreateAvatarResourcesTable().down();
     await CreateAdminUserRolesTable().down();

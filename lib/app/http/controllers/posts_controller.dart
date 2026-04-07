@@ -34,10 +34,12 @@ class PostsController extends Controller {
             .select(['user_id'])
             .where('blocked_user_id', '=', authUserId)
             .get();
-        blockedIds.addAll(
-            (blockedByMe as List).map((r) => r['blocked_user_id'].toString()));
-        blockedIds
-            .addAll((blockedMe as List).map((r) => r['user_id'].toString()));
+        blockedIds.addAll((blockedByMe as List)
+            .whereType<Map>()
+            .map((r) => r['blocked_user_id'].toString()));
+        blockedIds.addAll((blockedMe as List)
+            .whereType<Map>()
+            .map((r) => r['user_id'].toString()));
       }
 
       var postsQuery = Posts()
@@ -103,11 +105,14 @@ class PostsController extends Controller {
       if (authUserId.isNotEmpty) {
         final liked =
             await LikesModel().query().where('user_id', '=', authUserId).get();
-        likedPostIds =
-            (liked as List).map((l) => l['post_id']?.toString() ?? '').toList();
+        likedPostIds = (liked as List)
+            .whereType<Map>()
+            .map((l) => l['post_id']?.toString() ?? '')
+            .toList();
       }
 
-      final data = (posts['data'] as List<dynamic>).map((post) {
+      final rows = (posts['data'] as List<dynamic>).whereType<Map>();
+      final data = rows.map((post) {
         return {
           'id': post['id'],
           'user_id': post['user_id'],
@@ -224,11 +229,14 @@ class PostsController extends Controller {
       if (authUserId.isNotEmpty) {
         final liked =
             await LikesModel().query().where('user_id', '=', authUserId).get();
-        likedPostIds =
-            (liked as List).map((l) => l['post_id']?.toString() ?? '').toList();
+        likedPostIds = (liked as List)
+            .whereType<Map>()
+            .map((l) => l['post_id']?.toString() ?? '')
+            .toList();
       }
 
-      final data = (posts['data'] as List<dynamic>).map((post) {
+      final rows = (posts['data'] as List<dynamic>).whereType<Map>();
+      final data = rows.map((post) {
         return {
           'id': post['id'],
           'user_id': post['user_id'],
@@ -553,10 +561,12 @@ class PostsController extends Controller {
           .select(['user_id'])
           .where('blocked_user_id', '=', authUserId)
           .get();
-      blockedIds.addAll(
-          (blockedByMe as List).map((r) => r['blocked_user_id'].toString()));
-      blockedIds
-          .addAll((blockedMe as List).map((r) => r['user_id'].toString()));
+      blockedIds.addAll((blockedByMe as List)
+          .whereType<Map>()
+          .map((r) => r['blocked_user_id'].toString()));
+      blockedIds.addAll((blockedMe as List)
+          .whereType<Map>()
+          .map((r) => r['user_id'].toString()));
     }
 
     // Build exclusion clause
@@ -757,11 +767,13 @@ class PostsController extends Controller {
       if (authUserId.isNotEmpty) {
         final liked =
             await LikesModel().query().where('user_id', '=', authUserId).get();
-        likedPostIds =
-            (liked as List).map((l) => l['post_id']?.toString() ?? '').toList();
+        likedPostIds = (liked as List)
+            .whereType<Map>()
+            .map((l) => l['post_id']?.toString() ?? '')
+            .toList();
       }
 
-      final data = rows.map((p) {
+      final data = rows.whereType<Map>().map((p) {
         return {
           'id': p['id'],
           'user_id': p['user_id'],
