@@ -40,10 +40,10 @@ class CustomizationController extends Controller {
     };
     final accessoryRows = await connection!.select(
       '''
-      SELECT id, avatar_id, category, name, image_url, price_bling, is_paid, owners_count, eligible_blingers, status
+      SELECT id, avatar_id, category, slot, layer_order, name, image_url, price_bling, is_paid, owners_count, eligible_blingers, status
       FROM avatar_accessories
       WHERE status = 'active'
-      ORDER BY created_at DESC
+      ORDER BY layer_order ASC, created_at DESC
       ''',
       [],
     );
@@ -96,6 +96,7 @@ class CustomizationController extends Controller {
     final wallet = await Wallet().query().where('user_id', '=', userId).first();
     final balance = (wallet?['balance'] as num?)?.toInt() ?? 0;
     final user = await User().query().where('id', '=', userId).first();
+    final equippedLayers = await _loadEquippedAccessoryLayers(userId);
 
     return Response.json({
       'wallet_balance': balance,
@@ -103,6 +104,7 @@ class CustomizationController extends Controller {
         'avatar_id': user?['equipped_avatar_id']?.toString() ?? '',
         'outfit_id': user?['equipped_outfit_id']?.toString() ?? '',
         'accessory_id': user?['equipped_accessory_id']?.toString() ?? '',
+        'layers': equippedLayers,
       },
       'avatars': avatarRows.map((row) {
         final owned = ownedAvatars[row['id']?.toString() ?? ''];
@@ -480,6 +482,10 @@ class CustomizationController extends Controller {
 
     final accessory = rows.first;
     final category = _cleanString(accessory['category'], fallback: 'accessory');
+    final slot = _normalizeAccessorySlot(
+      accessory['slot'],
+      fallbackCategory: category,
+    );
     final ownedRows = await connection!.select(
       '''
       SELECT id
@@ -523,7 +529,6 @@ class CustomizationController extends Controller {
       );
     }
 
-    final resetCategory = category == 'outfit' ? 'outfit' : 'accessory';
     await connection!.statement(
       '''
       UPDATE user_accessory_inventory uai
@@ -531,9 +536,9 @@ class CustomizationController extends Controller {
       FROM avatar_accessories aa
       WHERE uai.accessory_id = aa.id
         AND uai.user_id = \$1
-        AND aa.category = \$2
+        AND COALESCE(NULLIF(TRIM(aa.slot), ''), CASE WHEN COALESCE(NULLIF(TRIM(aa.category), ''), 'accessory') = 'outfit' THEN 'outfit' ELSE 'accessory_main' END) = \$2
       ''',
-      [userId, resetCategory],
+      [userId, slot],
     );
     await connection!.statement(
       '''
@@ -546,15 +551,21 @@ class CustomizationController extends Controller {
 
     await User().query().where('id', '=', userId).update({
       if (category == 'outfit') 'equipped_outfit_id': accessoryId,
-      if (category != 'outfit') 'equipped_accessory_id': accessoryId,
+      if (category != 'outfit')
+        'equipped_accessory_id':
+            await _resolvePrimaryAccessoryId(userId, accessoryId),
       'updated_at': DateTime.now().toIso8601String(),
     });
+
+    final equippedLayers = await _loadEquippedAccessoryLayers(userId);
 
     return Response.json({
       'message':
           category == 'outfit' ? 'Outfit equipped' : 'Accessory equipped',
       'category': category,
+      'slot': slot,
       'image_url': accessory['image_url']?.toString() ?? '',
+      'equipped_layers': equippedLayers,
     }, HttpStatus.ok);
   }
 
@@ -610,6 +621,11 @@ class CustomizationController extends Controller {
       'id': row['id']?.toString() ?? '',
       'avatar_id': row['avatar_id']?.toString() ?? '',
       'category': _cleanString(row['category'], fallback: 'accessory'),
+      'slot': _normalizeAccessorySlot(
+        row['slot'],
+        fallbackCategory: row['category'],
+      ),
+      'layer_order': _toInt(row['layer_order']),
       'name': row['name']?.toString() ?? '',
       'image_url': row['image_url']?.toString() ?? '',
       'price_bling': _toInt(row['price_bling']),
@@ -619,6 +635,59 @@ class CustomizationController extends Controller {
       'owned': owned != null,
       'is_equipped': owned != null && _toInt(owned['is_equipped']) == 1,
     };
+  }
+
+  Future<List<Map<String, dynamic>>> _loadEquippedAccessoryLayers(
+    String userId,
+  ) async {
+    final rows = await connection!.select(
+      '''
+      SELECT aa.id, aa.category, aa.slot, aa.layer_order, aa.name, aa.image_url
+      FROM user_accessory_inventory uai
+      INNER JOIN avatar_accessories aa ON aa.id = uai.accessory_id
+      WHERE uai.user_id = \$1
+        AND uai.is_equipped = 1
+        AND aa.status = 'active'
+      ORDER BY aa.layer_order ASC, aa.created_at ASC
+      ''',
+      [userId],
+    );
+
+    return rows
+        .map((row) => {
+              'id': row['id']?.toString() ?? '',
+              'category': _cleanString(row['category'], fallback: 'accessory'),
+              'slot': _normalizeAccessorySlot(
+                row['slot'],
+                fallbackCategory: row['category'],
+              ),
+              'layer_order': _toInt(row['layer_order']),
+              'name': _cleanString(row['name']),
+              'image_url': _cleanString(row['image_url']),
+            })
+        .toList();
+  }
+
+  Future<String> _resolvePrimaryAccessoryId(
+    String userId,
+    String fallbackAccessoryId,
+  ) async {
+    final rows = await connection!.select(
+      '''
+      SELECT aa.id
+      FROM user_accessory_inventory uai
+      INNER JOIN avatar_accessories aa ON aa.id = uai.accessory_id
+      WHERE uai.user_id = \$1
+        AND uai.is_equipped = 1
+        AND aa.status = 'active'
+        AND COALESCE(NULLIF(TRIM(aa.category), ''), 'accessory') != 'outfit'
+      ORDER BY aa.layer_order ASC, aa.created_at ASC
+      LIMIT 1
+      ''',
+      [userId],
+    );
+    if (rows.isEmpty) return fallbackAccessoryId;
+    return rows.first['id']?.toString() ?? fallbackAccessoryId;
   }
 
   String _buildMedalDescription(Map<String, dynamic> row) {
@@ -643,6 +712,16 @@ class CustomizationController extends Controller {
   String _cleanString(dynamic value, {String fallback = ''}) {
     final text = value?.toString().trim() ?? '';
     return text.isEmpty ? fallback : text;
+  }
+
+  String _normalizeAccessorySlot(
+    dynamic value, {
+    dynamic fallbackCategory,
+  }) {
+    final slot = value?.toString().trim().toLowerCase() ?? '';
+    if (slot.isNotEmpty) return slot;
+    final category = fallbackCategory?.toString().trim().toLowerCase() ?? '';
+    return category == 'outfit' ? 'outfit' : 'accessory_main';
   }
 }
 

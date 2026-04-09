@@ -284,6 +284,7 @@ class AdController extends Controller {
         SELECT id, title, body, image_url, thumbnail_url, video_url,
                media_kind, storage_bucket, storage_path, mime_type, target_url,
                budget_bling, spent_bling, cpm_bling,
+               target_min_level, target_verified_only,
                total_impressions, total_clicks, status,
                start_at, end_at, created_at,
                CASE WHEN total_impressions > 0
@@ -313,6 +314,8 @@ class AdController extends Controller {
                   'spent_bling': a['spent_bling'],
                   'remaining_bling': a['remaining_bling'],
                   'cpm_bling': a['cpm_bling'],
+                  'target_min_level': a['target_min_level'],
+                  'target_verified_only': a['target_verified_only'],
                   'total_impressions': a['total_impressions'],
                   'total_clicks': a['total_clicks'],
                   'ctr_percent': a['ctr_percent'],
@@ -331,7 +334,9 @@ class AdController extends Controller {
   // ─── Pause / resume / delete ─────────────────────────────────────────────
 
   /// PUT /api/ads/:id  (authenticated)
-  /// Body: { status: 'active' | 'paused' }
+  /// Body:
+  ///  - { status: 'active' | 'paused' } for status-only updates
+  ///  - full campaign payload for edit
   Future<Response> updateAd(Request request, [dynamic _]) async {
     final advertiserId = request.input('auth_user_id')?.toString() ?? '';
     final adId = request.params()['id'] as String? ?? '';
@@ -339,13 +344,15 @@ class AdController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final status = request.body['status']?.toString() ?? '';
-    if (!['active', 'paused'].contains(status)) {
-      return Response.json({'message': 'status must be active or paused'}, 422);
-    }
+    final body = request.body;
 
     final rows = await connection!.select(
-      'SELECT id, advertiser_id FROM ads WHERE id = \$1 LIMIT 1',
+      '''
+      SELECT id, advertiser_id, status, budget_bling, spent_bling
+      FROM ads
+      WHERE id = \$1
+      LIMIT 1
+      ''',
       [adId],
     );
     if (rows.isEmpty) return Response.json({'message': 'Not found'}, 404);
@@ -353,13 +360,130 @@ class AdController extends Controller {
       return Response.json({'message': 'Forbidden'}, 403);
     }
 
+    final current = rows.first;
+    final statusOnly = body.keys.length == 1 && body.containsKey('status');
+    if (statusOnly) {
+      final status = body['status']?.toString() ?? '';
+      if (!['active', 'paused'].contains(status)) {
+        return Response.json(
+            {'message': 'status must be active or paused'}, 422);
+      }
+      await connection!.statement(
+        "UPDATE ads SET status = \$1, updated_at = \$2 WHERE id = \$3",
+        [status, DateTime.now().toIso8601String(), adId],
+      );
+      return Response.json(
+          {'message': 'Campaign updated', 'status': status}, 200);
+    }
+
+    final title = body['title']?.toString() ?? '';
+    final adBody = body['body']?.toString() ?? '';
+    final budgetBling =
+        int.tryParse(body['budget_bling']?.toString() ?? '0') ?? 0;
+    final cpmBling = int.tryParse(body['cpm_bling']?.toString() ?? '50') ?? 50;
+    final targetMinLevel =
+        int.tryParse(body['target_min_level']?.toString() ?? '');
+    final targetVerifiedOnly = body['target_verified_only'] == true ||
+        body['target_verified_only'] == 'true';
+    final status =
+        body['status']?.toString() ?? current['status']?.toString() ?? 'active';
+
+    if (title.isEmpty || adBody.isEmpty) {
+      return Response.json({'message': 'Title and body are required'}, 422);
+    }
+    if (budgetBling < 100) {
+      return Response.json({'message': 'Minimum budget is 100 Bling'}, 422);
+    }
+    if (!['active', 'paused', 'exhausted'].contains(status)) {
+      return Response.json({'message': 'Invalid status'}, 422);
+    }
+
+    final currentBudget = (current['budget_bling'] as num?)?.toInt() ?? 0;
+    final spentBling = (current['spent_bling'] as num?)?.toInt() ?? 0;
+    if (budgetBling < spentBling) {
+      return Response.json(
+          {'message': 'Budget cannot be less than already spent Bling'}, 422);
+    }
+
+    final wallet =
+        await Wallet().query().where('user_id', '=', advertiserId).first();
+    if (wallet == null) {
+      return Response.json({'message': 'Wallet not found'}, 404);
+    }
+
+    final now = DateTime.now().toIso8601String();
+    final budgetDelta = budgetBling - currentBudget;
+    final currentBalance = (wallet['balance'] as num?)?.toInt() ?? 0;
+    var newBalance = currentBalance;
+
+    if (budgetDelta > 0) {
+      if (currentBalance < budgetDelta) {
+        return Response.json({'message': 'Insufficient Bling balance'}, 400);
+      }
+      newBalance = currentBalance - budgetDelta;
+    } else if (budgetDelta < 0) {
+      newBalance = currentBalance + (-budgetDelta);
+    }
+
+    if (budgetDelta != 0) {
+      await Wallet().query().where('user_id', '=', advertiserId).update({
+        'balance': newBalance,
+        'updated_at': now,
+      });
+    }
+
     await connection!.statement(
-      "UPDATE ads SET status = \$1, updated_at = \$2 WHERE id = \$3",
-      [status, DateTime.now().toIso8601String(), adId],
+      '''
+      UPDATE ads
+      SET title = \$1,
+          body = \$2,
+          image_url = \$3,
+          target_url = \$4,
+          thumbnail_url = \$5,
+          video_url = \$6,
+          media_kind = \$7,
+          storage_bucket = \$8,
+          storage_path = \$9,
+          mime_type = \$10,
+          budget_bling = \$11,
+          cpm_bling = \$12,
+          target_min_level = \$13,
+          target_verified_only = \$14,
+          start_at = \$15,
+          end_at = \$16,
+          status = \$17,
+          updated_at = \$18
+      WHERE id = \$19
+      ''',
+      [
+        title,
+        adBody,
+        body['image_url']?.toString() ?? '',
+        body['target_url']?.toString() ?? '',
+        body['thumbnail_url']?.toString() ?? '',
+        body['video_url']?.toString() ?? '',
+        body['media_kind']?.toString() ?? 'image',
+        body['storage_bucket']?.toString() ?? '',
+        body['storage_path']?.toString() ?? '',
+        body['mime_type']?.toString() ?? '',
+        budgetBling,
+        cpmBling,
+        targetMinLevel,
+        targetVerifiedOnly,
+        body['start_at']?.toString(),
+        body['end_at']?.toString(),
+        budgetBling <= spentBling ? 'exhausted' : status,
+        now,
+        adId,
+      ],
     );
 
-    return Response.json(
-        {'message': 'Campaign updated', 'status': status}, 200);
+    return Response.json({
+      'message': 'Campaign updated',
+      'new_wallet_balance': newBalance,
+      'budget_bling': budgetBling,
+      'spent_bling': spentBling,
+    }, 200);
   }
 }
 

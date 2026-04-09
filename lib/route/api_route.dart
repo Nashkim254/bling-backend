@@ -16,6 +16,7 @@ import 'package:bling/app/http/controllers/posts_controller.dart';
 import 'package:bling/app/http/controllers/purchase_controller.dart';
 import 'package:bling/app/http/controllers/report_controller.dart';
 import 'package:bling/app/http/controllers/reposts_controller.dart';
+import 'package:bling/app/http/controllers/support_controller.dart';
 import 'package:bling/app/http/controllers/wallet_controller.dart';
 import 'package:bling/app/http/middleware/authenticate.dart';
 import 'package:bling/app/http/middleware/admin_middleware.dart';
@@ -87,6 +88,10 @@ class ApiRoute implements Route {
       Router.post(
         '/admin/notifications/{id}/process',
         adminController.processNotification,
+      );
+      Router.post(
+        '/admin/notifications/{id}/reply',
+        adminController.replyToSupportNotification,
       );
       Router.get('/admin/transactions', adminController.getAdminTransactions);
       Router.post(
@@ -171,6 +176,8 @@ class ApiRoute implements Route {
       // Follow
       Router.post('/follow/{id}', followController.follow);
       Router.delete('/follow/{id}', followController.unfollow);
+      Router.delete(
+          '/follow/connection/{id}', followController.removeConnection);
       Router.get('/user/followers', followController.getFollowers);
       Router.get('/user/following', followController.getFollowing);
 
@@ -207,6 +214,9 @@ class ApiRoute implements Route {
       Router.put('/ads/{id}', adController.updateAd);
       Router.post('/ads/{id}/impression', adController.recordImpression);
       Router.post('/ads/{id}/click', adController.recordClick);
+
+      // Support
+      Router.post('/support/request', supportController.createRequest);
     }, middleware: [AuthenticateMiddleware()]);
 
     // ─── Chats — flat routes inside auth middleware group ────────────────────

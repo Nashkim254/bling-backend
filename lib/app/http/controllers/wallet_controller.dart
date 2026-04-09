@@ -71,14 +71,52 @@ class WalletController extends Controller {
     final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
     final limit =
         int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
+    final safePage = page < 1 ? 1 : page;
+    final safeLimit = limit < 1 ? 20 : (limit > 100 ? 100 : limit);
+    final offset = (safePage - 1) * safeLimit;
 
-    final transactions = await BlingTransaction()
-        .query()
-        .where('user_id', '=', authUserId)
-        .orderBy('created_at', 'DESC')
-        .paginate(limit, page);
+    try {
+      final total = await BlingTransaction()
+          .query()
+          .where('user_id', '=', authUserId)
+          .count();
 
-    return Response.json({'transactions': transactions}, HttpStatus.ok);
+      final rows = await BlingTransaction()
+          .query()
+          .where('user_id', '=', authUserId)
+          .orderBy('created_at', 'DESC')
+          .limit(safeLimit)
+          .offset(offset)
+          .get();
+
+      final data = (rows as List)
+          .whereType<Map>()
+          .map((t) => {
+                'id': t['id'],
+                'type': t['type'],
+                'amount': t['amount'],
+                'to_user_id': t['to_user_id'],
+                'description': t['description'],
+                'reference': t['reference'],
+                'created_at': t['created_at']?.toString(),
+              })
+          .toList();
+
+      return Response.json({
+        'transactions': {
+          'data': data,
+          'total': total,
+          'page': safePage,
+          'limit': safeLimit,
+          'last_page': safeLimit == 0 ? 1 : ((total / safeLimit).ceil()),
+        }
+      }, HttpStatus.ok);
+    } catch (e) {
+      return Response.json({
+        'message': 'Could not load wallet transactions',
+        'error': e.toString(),
+      }, 400);
+    }
   }
 
   /// GET /api/bling/packages
@@ -236,6 +274,7 @@ class WalletController extends Controller {
 
     final now = DateTime.now().toIso8601String();
     final sender = await User().query().where('id', '=', authUserId).first();
+    final transferReference = 'TR${DateTime.now().millisecondsSinceEpoch}';
 
     // ── Deduct full amount from sender ────────────────────────────────────
     final newSenderBalance = (senderWallet['balance'] as num).toInt() - amount;
@@ -271,6 +310,7 @@ class WalletController extends Controller {
       'to_user_id': toUserId,
       'type': 'transfer_out',
       'amount': amount,
+      'reference': transferReference,
       'fee_amount': feeAmount,
       'context': context,
       'description': message.isNotEmpty
@@ -289,6 +329,7 @@ class WalletController extends Controller {
       'to_user_id': authUserId,
       'type': 'transfer_in',
       'amount': recipientAmount,
+      'reference': transferReference,
       'fee_amount': feeAmount,
       'context': context,
       'description': message.isNotEmpty
@@ -308,6 +349,7 @@ class WalletController extends Controller {
         'to_user_id': toUserId, // whose tip it came from
         'type': 'platform_commission',
         'amount': feeAmount,
+        'reference': transferReference,
         'fee_amount': feeAmount,
         'context': context,
         'description': '${commissionRate}% tip commission on ${amount} Bling',
@@ -368,12 +410,14 @@ class WalletController extends Controller {
       'message': isTip
           ? 'Tip sent! ${recipient['name']} received $recipientAmount Bling.'
           : 'Bling transferred successfully',
+      'reference': transferReference,
       'amount_sent': amount,
       'recipient_received': recipientAmount,
       'fee': feeAmount,
       'commission_rate': isTip ? commissionRate : 0,
       'new_balance': newSenderBalance,
       'recipient': recipient['name'],
+      'created_at': now,
     }, HttpStatus.ok);
   }
 }

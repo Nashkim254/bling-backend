@@ -89,6 +89,34 @@ class FollowController extends Controller {
         {'message': 'Unfollowed successfully', 'is_following': false}, 200);
   }
 
+  /// DELETE /api/follow/connection/:userId  (authenticated)
+  /// Removes any follower/following relationship between the two users.
+  Future<Response> removeConnection(Request request, [dynamic _]) async {
+    final targetUserId = request.params()['id'] as String? ?? '';
+    final authUserId = request.input('auth_user_id') as String? ?? '';
+
+    if (authUserId.isEmpty) {
+      return Response.json({'message': 'Unauthenticated'}, 401);
+    }
+    if (targetUserId.isEmpty) {
+      return Response.json({'message': 'User not found'}, 404);
+    }
+
+    await Follow()
+        .query()
+        .where('follower_id', '=', authUserId)
+        .where('following_id', '=', targetUserId)
+        .delete();
+
+    await Follow()
+        .query()
+        .where('follower_id', '=', targetUserId)
+        .where('following_id', '=', authUserId)
+        .delete();
+
+    return Response.json({'message': 'Connection removed'}, 200);
+  }
+
   /// GET /api/user/followers?page=&limit=  (authenticated)
   Future<Response> getFollowers(Request request) async {
     final authUserId = request.input('auth_user_id') as String? ?? '';

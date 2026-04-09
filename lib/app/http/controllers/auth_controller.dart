@@ -425,6 +425,18 @@ class AuthController extends Controller {
             'SELECT image_url FROM avatar_accessories WHERE id = \$1 LIMIT 1',
             [equippedAccessoryId],
           );
+    final equippedLayers = await connection!.select(
+      '''
+      SELECT aa.id, aa.category, aa.slot, aa.layer_order, aa.name, aa.image_url
+      FROM user_accessory_inventory uai
+      INNER JOIN avatar_accessories aa ON aa.id = uai.accessory_id
+      WHERE uai.user_id = \$1
+        AND uai.is_equipped = 1
+        AND aa.status = 'active'
+      ORDER BY aa.layer_order ASC, aa.created_at ASC
+      ''',
+      [userId],
+    );
 
     return {
       'equipped_avatar_id': equippedAvatarId,
@@ -439,6 +451,20 @@ class AuthController extends Controller {
       'equipped_accessory_url': accessoryRows.isNotEmpty
           ? accessoryRows.first['image_url']?.toString() ?? ''
           : '',
+      'equipped_layers': equippedLayers
+          .map((row) => {
+                'id': row['id']?.toString() ?? '',
+                'category': row['category']?.toString().trim() ?? 'accessory',
+                'slot': _normalizeAccessorySlot(
+                  row['slot'],
+                  fallbackCategory: row['category'],
+                ),
+                'layer_order':
+                    int.tryParse(row['layer_order']?.toString() ?? '0') ?? 0,
+                'name': row['name']?.toString().trim() ?? '',
+                'image_url': row['image_url']?.toString().trim() ?? '',
+              })
+          .toList(),
     };
   }
 
@@ -470,8 +496,12 @@ class AuthController extends Controller {
   List<Map<String, String>> _normalizeSocialLinks(dynamic input) {
     const allowed = {
       'instagram': ['instagram.com'],
+      'tiktok': ['tiktok.com'],
+      'x': ['x.com', 'twitter.com'],
+      'reddit': ['reddit.com'],
       'spotify': ['spotify.com', 'open.spotify.com'],
       'facebook': ['facebook.com', 'fb.com'],
+      'youtube': ['youtube.com', 'youtu.be'],
     };
     dynamic decoded = input;
     if (input is String) {
@@ -500,6 +530,13 @@ class AuthController extends Controller {
         })
         .whereType<Map<String, String>>()
         .toList();
+  }
+
+  String _normalizeAccessorySlot(dynamic value, {dynamic fallbackCategory}) {
+    final slot = value?.toString().trim().toLowerCase() ?? '';
+    if (slot.isNotEmpty) return slot;
+    final category = fallbackCategory?.toString().trim().toLowerCase() ?? '';
+    return category == 'outfit' ? 'outfit' : 'accessory_main';
   }
 
   /// GET /api/users?search=&page=&limit=

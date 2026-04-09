@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:bling/app/models/wallet.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
@@ -414,7 +415,12 @@ class AdminController extends Controller {
     }
 
     final accessoryRows = await connection!.select(
-      'SELECT * FROM avatar_accessories WHERE avatar_id = \$1 AND status = \'active\' ORDER BY created_at ASC',
+      '''
+      SELECT *
+      FROM avatar_accessories
+      WHERE avatar_id = \$1 AND status = 'active'
+      ORDER BY layer_order ASC, created_at ASC
+      ''',
       [avatarId],
     );
 
@@ -446,6 +452,11 @@ class AdminController extends Controller {
                 'id': row['id']?.toString() ?? '',
                 'category':
                     _cleanString(row['category'], fallback: 'accessory'),
+                'slot': _normalizeAccessorySlot(
+                  row['slot'],
+                  fallbackCategory: row['category'],
+                ),
+                'layer_order': _toInt(row['layer_order']),
                 'name': _cleanString(row['name']),
                 'image_url': _cleanString(row['image_url']),
                 'price_bling': _toInt(row['price_bling']),
@@ -471,17 +482,26 @@ class AdminController extends Controller {
     await connection!.statement(
       '''
       INSERT INTO avatar_accessories (
-        id, avatar_id, category, name, image_url, price_bling, is_paid, owners_count,
+        id, avatar_id, category, slot, layer_order, name, image_url, price_bling, is_paid, owners_count,
         eligible_blingers, status, created_by, created_at, updated_at
       )
       VALUES (
-        \$1, \$2, \$3, \$4, \$5, \$6, \$7, 0, \$8, 'active', \$9, NOW(), NOW()
+        \$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, 0, \$10, 'active', \$11, NOW(), NOW()
       )
       ''',
       [
         accessoryId,
         avatarId,
-        body['category']?.toString() == 'outfit' ? 'outfit' : 'accessory',
+        _normalizeAccessoryCategory(body['category']),
+        _normalizeAccessorySlot(
+          body['slot'],
+          fallbackCategory: body['category'],
+        ),
+        _normalizeAccessoryLayerOrder(
+          body['layer_order'],
+          slot: body['slot'],
+          category: body['category'],
+        ),
         body['name']?.toString() ?? 'Accessory',
         body['image_url']?.toString() ?? '',
         _toInt(body['price_bling']),
@@ -761,6 +781,94 @@ class AdminController extends Controller {
     return Response.json({'message': 'Notification processed'}, 200);
   }
 
+  Future<Response> replyToSupportNotification(Request request,
+      [dynamic _]) async {
+    final notificationId = request.params()['id']?.toString() ?? '';
+    final adminId = request.input('auth_admin_id')?.toString() ?? '';
+    final message = request.body['message']?.toString().trim() ?? '';
+
+    if (adminId.isEmpty) {
+      return Response.json({'message': 'Unauthenticated'}, 401);
+    }
+    if (message.isEmpty) {
+      return Response.json({'message': 'Reply message required'}, 422);
+    }
+
+    final rows = await connection!.select(
+      'SELECT type, data FROM notifications WHERE id = \$1 LIMIT 1',
+      [notificationId],
+    );
+    if (rows.isEmpty) {
+      return Response.json({'message': 'Notification not found'}, 404);
+    }
+
+    final row = rows.first;
+    if ((row['type']?.toString() ?? '') != 'support_request') {
+      return Response.json({'message': 'Not a support request'}, 422);
+    }
+
+    final rawData = row['data'];
+    Map<String, dynamic> payload = {};
+    if (rawData is Map<String, dynamic>) {
+      payload = rawData;
+    } else if (rawData != null) {
+      final decoded = jsonDecode(rawData.toString());
+      if (decoded is Map<String, dynamic>) {
+        payload = decoded;
+      }
+    }
+
+    final conversationId = payload['conversation_id']?.toString() ?? '';
+    if (conversationId.isEmpty) {
+      return Response.json({'message': 'Support conversation not found'}, 422);
+    }
+
+    final membership = await connection!.select(
+      '''
+      SELECT id FROM conversation_members
+      WHERE conversation_id = \$1 AND user_id = \$2
+      LIMIT 1
+      ''',
+      [conversationId, adminId],
+    );
+    final now = DateTime.now().toIso8601String();
+    if (membership.isEmpty) {
+      await connection!.statement(
+        '''
+        INSERT INTO conversation_members (
+          id, conversation_id, user_id, role, joined_at, created_at, updated_at
+        ) VALUES (\$1, \$2, \$3, \$4, \$5, \$5, \$5)
+        ''',
+        [const Uuid().v4(), conversationId, adminId, 'admin', now],
+      );
+    }
+
+    final messageId = const Uuid().v4();
+    await connection!.statement(
+      '''
+      INSERT INTO chats (
+        id, conversation_id, from_user_id, to_user_id, content,
+        message_type, is_read, delivered, is_deleted, created_at, updated_at
+      ) VALUES (\$1, \$2, \$3, \$3, \$4, 'text', 0, 1, 0, \$5, \$5)
+      ''',
+      [messageId, conversationId, adminId, message, now],
+    );
+
+    await connection!.statement(
+      '''
+      UPDATE conversations
+      SET last_message = \$1,
+          last_message_sender_id = \$2,
+          last_message_at = \$3,
+          updated_at = \$3
+      WHERE id = \$4
+      ''',
+      [message, adminId, now, conversationId],
+    );
+
+    return Response.json({'message': 'Reply sent'}, 200);
+  }
+
   Future<Response> getAdminTransactions(Request request) async {
     final rows = await connection!.select(
       '''
@@ -819,23 +927,51 @@ class AdminController extends Controller {
     final transactionId = request.params()['id']?.toString() ?? '';
     final adminId = request.input('auth_admin_id')?.toString() ?? '';
     final body = request.body;
+    final reason = body['reason']?.toString() ?? '';
 
-    await connection!.statement(
+    final rows = await connection!.select(
       '''
-      UPDATE bling_transactions
-      SET admin_status = 'reversed',
-          reversed_by = \$2,
-          reversed_at = NOW(),
-          reverse_reason = \$3
+      SELECT id, user_id, to_user_id, type, amount, fee_amount, context,
+             admin_status, created_at
+      FROM bling_transactions
       WHERE id = \$1
+      LIMIT 1
       ''',
-      [
-        transactionId,
-        adminId.isEmpty ? null : adminId,
-        body['reason']?.toString() ?? '',
-      ],
+      [transactionId],
     );
-    return Response.json({'message': 'Transaction marked as reversed'}, 200);
+    if (rows.isEmpty) {
+      return Response.json({'message': 'Transaction not found'}, 404);
+    }
+
+    final transaction = rows.first;
+    final status =
+        _cleanString(transaction['admin_status'], fallback: 'complete');
+    if (status == 'reversed') {
+      return Response.json({'message': 'Transaction already reversed'}, 409);
+    }
+
+    final type = _cleanString(transaction['type']);
+    if (type == 'purchase') {
+      return _reversePurchaseTransaction(
+        transaction,
+        adminId: adminId,
+        reason: reason,
+      );
+    }
+    if (type == 'transfer_out' ||
+        type == 'transfer_in' ||
+        type == 'platform_commission') {
+      return _reverseTransferTransaction(
+        transaction,
+        adminId: adminId,
+        reason: reason,
+      );
+    }
+
+    return Response.json(
+      {'message': 'Reversal is not supported for this transaction type'},
+      422,
+    );
   }
 
   Future<List<Map<String, dynamic>>> _fetchLeaderboardUsers(
@@ -1073,6 +1209,298 @@ class AdminController extends Controller {
   String _cleanString(dynamic value, {String fallback = ''}) {
     final next = value?.toString().trim() ?? '';
     return next.isEmpty ? fallback : next;
+  }
+
+  String _normalizeAccessoryCategory(dynamic value) {
+    return value?.toString().trim().toLowerCase() == 'outfit'
+        ? 'outfit'
+        : 'accessory';
+  }
+
+  String _normalizeAccessorySlot(dynamic value, {dynamic fallbackCategory}) {
+    final normalized = value?.toString().trim().toLowerCase() ?? '';
+    if (normalized.isNotEmpty) return normalized;
+    final category =
+        fallbackCategory?.toString().trim().toLowerCase() ?? 'accessory';
+    return category == 'outfit' ? 'outfit' : 'accessory_main';
+  }
+
+  int _normalizeAccessoryLayerOrder(
+    dynamic value, {
+    dynamic slot,
+    dynamic category,
+  }) {
+    final parsed = _toInt(value);
+    if (parsed > 0) return parsed;
+
+    final normalizedSlot =
+        _normalizeAccessorySlot(slot, fallbackCategory: category);
+    switch (normalizedSlot) {
+      case 'outfit':
+        return 100;
+      case 'back':
+        return 120;
+      case 'neck':
+        return 130;
+      case 'face':
+        return 145;
+      case 'glasses':
+        return 160;
+      case 'hand':
+        return 175;
+      case 'hat':
+        return 190;
+      case 'effect':
+        return 220;
+      default:
+        return 160;
+    }
+  }
+
+  Future<Response> _reversePurchaseTransaction(
+    Map<String, dynamic> transaction, {
+    required String adminId,
+    required String reason,
+  }) async {
+    final userId = _cleanString(transaction['user_id']);
+    final amount = _toInt(transaction['amount']);
+    if (userId.isEmpty || amount <= 0) {
+      return Response.json({'message': 'Transaction cannot be reversed'}, 422);
+    }
+
+    final wallet = await _ensureWallet(userId);
+    final currentBalance = _toInt(wallet['balance']);
+    if (currentBalance < amount) {
+      return Response.json(
+        {'message': 'User no longer has enough Bling to reverse this purchase'},
+        422,
+      );
+    }
+
+    await Wallet().query().where('user_id', '=', userId).update({
+      'balance': currentBalance - amount,
+      'updated_at': DateTime.now().toIso8601String(),
+    });
+
+    final userRows = await connection!.select(
+      'SELECT bling_score FROM users WHERE id = \$1 LIMIT 1',
+      [userId],
+    );
+    if (userRows.isNotEmpty) {
+      final score = _toInt(userRows.first['bling_score']);
+      await connection!.statement(
+        'UPDATE users SET bling_score = \$2, updated_at = NOW() WHERE id = \$1',
+        [userId, score - amount < 0 ? 0 : score - amount],
+      );
+    }
+
+    await _markTransactionsReversed(
+      [transaction['id']?.toString() ?? ''],
+      adminId: adminId,
+      reason: reason,
+    );
+
+    return Response.json(
+      {'message': 'Purchase reversed and wallet debited'},
+      200,
+    );
+  }
+
+  Future<Response> _reverseTransferTransaction(
+    Map<String, dynamic> transaction, {
+    required String adminId,
+    required String reason,
+  }) async {
+    final transferGroup = await _loadTransferGroup(transaction);
+    if (transferGroup == null) {
+      return Response.json({'message': 'Related transfer rows not found'}, 404);
+    }
+
+    final ids = transferGroup['transaction_ids'] as List<String>;
+    final senderId = transferGroup['sender_id'] as String;
+    final recipientId = transferGroup['recipient_id'] as String;
+    final senderAmount = transferGroup['sender_amount'] as int;
+    final recipientAmount = transferGroup['recipient_amount'] as int;
+
+    if (ids.isEmpty ||
+        senderId.isEmpty ||
+        recipientId.isEmpty ||
+        senderAmount <= 0 ||
+        recipientAmount < 0) {
+      return Response.json({'message': 'Transfer cannot be reversed'}, 422);
+    }
+
+    final recipientWallet = await _ensureWallet(recipientId);
+    final recipientBalance = _toInt(recipientWallet['balance']);
+    if (recipientBalance < recipientAmount) {
+      return Response.json(
+        {
+          'message': 'Recipient no longer has enough Bling for this reversal',
+        },
+        422,
+      );
+    }
+
+    final senderWallet = await _ensureWallet(senderId);
+    final senderBalance = _toInt(senderWallet['balance']);
+
+    final now = DateTime.now().toIso8601String();
+    await Wallet().query().where('user_id', '=', senderId).update({
+      'balance': senderBalance + senderAmount,
+      'updated_at': now,
+    });
+    await Wallet().query().where('user_id', '=', recipientId).update({
+      'balance': recipientBalance - recipientAmount,
+      'updated_at': now,
+    });
+
+    await _markTransactionsReversed(ids, adminId: adminId, reason: reason);
+
+    return Response.json(
+      {
+        'message': 'Transfer reversed and balances updated',
+        'sender_refunded': senderAmount,
+        'recipient_debited': recipientAmount,
+      },
+      200,
+    );
+  }
+
+  Future<Map<String, dynamic>?> _loadTransferGroup(
+    Map<String, dynamic> transaction,
+  ) async {
+    final type = _cleanString(transaction['type']);
+    final feeAmount = _toInt(transaction['fee_amount']);
+    String senderId;
+    String recipientId;
+    int senderAmount;
+    int recipientAmount;
+
+    if (type == 'transfer_out') {
+      senderId = _cleanString(transaction['user_id']);
+      recipientId = _cleanString(transaction['to_user_id']);
+      senderAmount = _toInt(transaction['amount']);
+      recipientAmount = senderAmount - feeAmount;
+    } else if (type == 'transfer_in') {
+      senderId = _cleanString(transaction['to_user_id']);
+      recipientId = _cleanString(transaction['user_id']);
+      recipientAmount = _toInt(transaction['amount']);
+      senderAmount = recipientAmount + feeAmount;
+    } else {
+      senderId = _cleanString(transaction['user_id']);
+      recipientId = _cleanString(transaction['to_user_id']);
+      senderAmount = 0;
+      recipientAmount = 0;
+    }
+
+    if (senderId.isEmpty || recipientId.isEmpty) return null;
+
+    final createdAt = transaction['created_at']?.toString() ?? '';
+    if (createdAt.isEmpty) return null;
+
+    final relatedRows = await connection!.select(
+      '''
+      SELECT id, type, user_id, to_user_id, amount, fee_amount, admin_status, created_at
+      FROM bling_transactions
+      WHERE created_at BETWEEN CAST(\$1 AS TIMESTAMP) - INTERVAL '10 seconds'
+                            AND CAST(\$1 AS TIMESTAMP) + INTERVAL '10 seconds'
+        AND (
+          (type = 'transfer_out' AND user_id = \$2 AND to_user_id = \$3)
+          OR (type = 'transfer_in' AND user_id = \$3 AND to_user_id = \$2)
+          OR (type = 'platform_commission' AND user_id = \$2 AND to_user_id = \$3)
+        )
+      ORDER BY created_at ASC
+      ''',
+      [createdAt, senderId, recipientId],
+    );
+
+    if (relatedRows.any(
+      (row) =>
+          _cleanString(row['admin_status'], fallback: 'complete') == 'reversed',
+    )) {
+      return null;
+    }
+
+    Map<String, dynamic>? transferOut;
+    Map<String, dynamic>? transferIn;
+    final commissionRows = <Map<String, dynamic>>[];
+    for (final row in relatedRows) {
+      final rowType = _cleanString(row['type']);
+      if (rowType == 'transfer_out' && transferOut == null) {
+        transferOut = row;
+      } else if (rowType == 'transfer_in' && transferIn == null) {
+        transferIn = row;
+      } else if (rowType == 'platform_commission') {
+        commissionRows.add(row);
+      }
+    }
+
+    if (transferOut == null && transferIn == null) return null;
+
+    senderAmount =
+        transferOut != null ? _toInt(transferOut['amount']) : senderAmount;
+    recipientAmount = transferIn != null
+        ? _toInt(transferIn['amount'])
+        : senderAmount - feeAmount;
+
+    final ids = <String>[
+      if (transferOut != null) transferOut['id']?.toString() ?? '',
+      if (transferIn != null) transferIn['id']?.toString() ?? '',
+      ...commissionRows.map((row) => row['id']?.toString() ?? ''),
+    ].where((id) => id.isNotEmpty).toList();
+
+    return {
+      'transaction_ids': ids,
+      'sender_id': senderId,
+      'recipient_id': recipientId,
+      'sender_amount': senderAmount,
+      'recipient_amount': recipientAmount < 0 ? 0 : recipientAmount,
+    };
+  }
+
+  Future<Map<String, dynamic>> _ensureWallet(String userId) async {
+    var wallet = await Wallet().query().where('user_id', '=', userId).first();
+    if (wallet != null) return wallet;
+
+    final walletId = const Uuid().v4();
+    final now = DateTime.now().toIso8601String();
+    await Wallet().query().insert({
+      'id': walletId,
+      'user_id': userId,
+      'balance': 0,
+      'created_at': now,
+      'updated_at': now,
+    });
+    return {
+      'id': walletId,
+      'user_id': userId,
+      'balance': 0,
+    };
+  }
+
+  Future<void> _markTransactionsReversed(
+    List<String> ids, {
+    required String adminId,
+    required String reason,
+  }) async {
+    for (final id in ids.where((item) => item.isNotEmpty)) {
+      await connection!.statement(
+        '''
+        UPDATE bling_transactions
+        SET admin_status = 'reversed',
+            reversed_by = \$2,
+            reversed_at = NOW(),
+            reverse_reason = \$3,
+            updated_at = NOW()
+        WHERE id = \$1
+        ''',
+        [
+          id,
+          adminId.isEmpty ? null : adminId,
+          reason,
+        ],
+      );
+    }
   }
 }
 

@@ -45,6 +45,7 @@ import 'create_admin_user_roles_table.dart';
 import 'create_avatar_resources_table.dart';
 import 'create_avatar_accessories_table.dart';
 import 'add_category_to_avatar_accessories.dart';
+import 'add_slot_and_layer_to_avatar_accessories.dart';
 import 'create_admin_leaderboards_table.dart';
 import 'create_admin_levels_table.dart';
 import 'create_admin_level_medals_table.dart';
@@ -116,6 +117,7 @@ class Migrate {
     await CreateAvatarResourcesTable().up();
     await CreateAvatarAccessoriesTable().up();
     await AddCategoryToAvatarAccessories().up();
+    await AddSlotAndLayerToAvatarAccessories().up();
     await CreateAdminLeaderboardsTable().up();
     await CreateAdminLevelsTable().up();
     await CreateAdminLevelMedalsTable().up();
@@ -142,6 +144,7 @@ class Migrate {
     await CreateAdminLevelMedalsTable().down();
     await CreateAdminLevelsTable().down();
     await CreateAdminLeaderboardsTable().down();
+    await AddSlotAndLayerToAvatarAccessories().down();
     await AddCategoryToAvatarAccessories().down();
     await CreateAvatarAccessoriesTable().down();
     await CreateAvatarResourcesTable().down();

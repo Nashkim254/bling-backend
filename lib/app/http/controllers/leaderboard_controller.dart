@@ -53,7 +53,7 @@ class LeaderboardController extends Controller {
       final sortColumn = sortBy == 'balance' ? 'w.balance' : 'u.bling_score';
       final scoreAlias = sortBy == 'balance' ? 'w.balance' : 'u.bling_score';
 
-      List<Map<String, dynamic>> leaders;
+      List<dynamic> leaders;
 
       if (period == 'global') {
         leaders = await connection!.select(
@@ -97,7 +97,11 @@ class LeaderboardController extends Controller {
 
       // Find auth user's rank
       int? myRank;
-      final leaderRows = leaders.whereType<Map<String, dynamic>>().toList();
+      final leaderRows = leaders
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .where((row) => (row['id']?.toString() ?? '').isNotEmpty)
+          .toList();
 
       if (authUserId.isNotEmpty) {
         final idx = leaderRows.indexWhere((l) => l['id'] == authUserId);
@@ -115,11 +119,12 @@ class LeaderboardController extends Controller {
           'data': leaderRows
               .map((l) => {
                     'rank': (l['rank'] as num?)?.toInt(),
-                    'id': l['id'],
-                    'name': l['name'],
-                    'username': l['username'],
-                    'avatar': l['avatar'],
-                    'is_verified': l['is_verified'],
+                    'id': l['id']?.toString() ?? '',
+                    'name': l['name']?.toString() ?? '',
+                    'username': l['username']?.toString() ?? '',
+                    'avatar': l['avatar']?.toString() ?? '',
+                    'is_verified':
+                        l['is_verified'] == true || l['is_verified'] == 1,
                     'score': (l['score'] as num?)?.toInt() ?? 0,
                     'bling_balance': (l['bling_balance'] as num?)?.toInt() ?? 0,
                     'is_me': l['id'] == authUserId,

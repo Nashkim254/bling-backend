@@ -29,7 +29,10 @@ class ChatController extends Controller {
     try {
       final rows = await connection!.select('''
         SELECT
-          c.id, c.type, c.name, c.avatar, c.last_message, c.last_message_at,
+          c.id, TRIM(c.type) as type,
+          COALESCE(NULLIF(TRIM(c.name), ''), g.name) as name,
+          COALESCE(NULLIF(TRIM(c.avatar), ''), g.avatar) as avatar,
+          c.last_message, c.last_message_at,
           c.last_message_sender_id,
           cm.is_pinned, cm.is_archived,
           -- For DM: partner user info
@@ -48,8 +51,9 @@ class ChatController extends Controller {
             WHERE cm2.conversation_id = c.id) as member_count
         FROM conversations c
         JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = \$1
+        LEFT JOIN groups g ON TRIM(g.conversation_id) = TRIM(c.id) AND TRIM(c.type) = 'group'
         LEFT JOIN conversation_members cm_other ON cm_other.conversation_id = c.id
-          AND cm_other.user_id != \$1 AND c.type = 'dm'
+          AND cm_other.user_id != \$1 AND TRIM(c.type) = 'dm'
         LEFT JOIN users u ON u.id::text = cm_other.user_id
         WHERE cm.is_archived = 0
         ORDER BY cm.is_pinned DESC, c.last_message_at DESC NULLS LAST
@@ -73,7 +77,10 @@ class ChatController extends Controller {
 
     try {
       final rows = await connection!.select('''
-        SELECT c.id, c.type, c.name, c.avatar, c.last_message, c.last_message_at,
+        SELECT c.id, TRIM(c.type) as type,
+          COALESCE(NULLIF(TRIM(c.name), ''), g.name) as name,
+          COALESCE(NULLIF(TRIM(c.avatar), ''), g.avatar) as avatar,
+          c.last_message, c.last_message_at,
           cm.is_pinned, cm.is_archived,
           CASE WHEN c.type = 'dm' THEN u.id END as partner_id,
           CASE WHEN c.type = 'dm' THEN u.name END as partner_name,
@@ -82,8 +89,9 @@ class ChatController extends Controller {
           0 as unread_count, 0 as member_count
         FROM conversations c
         JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = \$1
+        LEFT JOIN groups g ON TRIM(g.conversation_id) = TRIM(c.id) AND TRIM(c.type) = 'group'
         LEFT JOIN conversation_members cm_other ON cm_other.conversation_id = c.id
-          AND cm_other.user_id != \$1 AND c.type = 'dm'
+          AND cm_other.user_id != \$1 AND TRIM(c.type) = 'dm'
         LEFT JOIN users u ON u.id::text = cm_other.user_id
         WHERE cm.is_archived = 1
         ORDER BY c.last_message_at DESC NULLS LAST
@@ -622,9 +630,13 @@ class ChatController extends Controller {
 
   Map<String, dynamic> _formatConversation(Map<String, dynamic> r) => {
         'id': r['id']?.toString(),
-        'type': r['type'],
-        'name': r['type'] == 'group' ? r['name'] : r['partner_name'],
-        'avatar': r['type'] == 'group' ? r['avatar'] : r['partner_avatar'],
+        'type': r['type']?.toString().trim(),
+        'name': r['type']?.toString().trim() == 'group'
+            ? r['name']
+            : r['partner_name'],
+        'avatar': r['type']?.toString().trim() == 'group'
+            ? r['avatar']
+            : r['partner_avatar'],
         'partner_id': r['partner_id'],
         'partner_name': r['partner_name'],
         'partner_username': r['partner_username'],
