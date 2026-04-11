@@ -457,6 +457,22 @@ class AdminController extends Controller {
                   fallbackCategory: row['category'],
                 ),
                 'layer_order': _toInt(row['layer_order']),
+                'scale': _normalizeAccessoryScale(
+                  row['scale'],
+                  slot: row['slot'],
+                  category: row['category'],
+                ),
+                'offset_x': _normalizeAccessoryOffsetX(
+                  row['offset_x'],
+                  slot: row['slot'],
+                  category: row['category'],
+                ),
+                'offset_y': _normalizeAccessoryOffsetY(
+                  row['offset_y'],
+                  slot: row['slot'],
+                  category: row['category'],
+                ),
+                'rotation': _toDouble(row['rotation']),
                 'name': _cleanString(row['name']),
                 'image_url': _cleanString(row['image_url']),
                 'price_bling': _toInt(row['price_bling']),
@@ -482,11 +498,11 @@ class AdminController extends Controller {
     await connection!.statement(
       '''
       INSERT INTO avatar_accessories (
-        id, avatar_id, category, slot, layer_order, name, image_url, price_bling, is_paid, owners_count,
+        id, avatar_id, category, slot, layer_order, scale, offset_x, offset_y, rotation, name, image_url, price_bling, is_paid, owners_count,
         eligible_blingers, status, created_by, created_at, updated_at
       )
       VALUES (
-        \$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, 0, \$10, 'active', \$11, NOW(), NOW()
+        \$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13, 0, \$14, 'active', \$15, NOW(), NOW()
       )
       ''',
       [
@@ -502,6 +518,22 @@ class AdminController extends Controller {
           slot: body['slot'],
           category: body['category'],
         ),
+        _normalizeAccessoryScale(
+          body['scale'],
+          slot: body['slot'],
+          category: body['category'],
+        ),
+        _normalizeAccessoryOffsetX(
+          body['offset_x'],
+          slot: body['slot'],
+          category: body['category'],
+        ),
+        _normalizeAccessoryOffsetY(
+          body['offset_y'],
+          slot: body['slot'],
+          category: body['category'],
+        ),
+        _toDouble(body['rotation']),
         body['name']?.toString() ?? 'Accessory',
         body['image_url']?.toString() ?? '',
         _toInt(body['price_bling']),
@@ -516,6 +548,92 @@ class AdminController extends Controller {
 
     return Response.json(
         {'message': 'Accessory created', 'id': accessoryId}, 201);
+  }
+
+  Future<Response> updateAccessory(Request request, [dynamic _]) async {
+    final accessoryId = request.params()['id']?.toString() ?? '';
+    final body = request.body;
+    if (accessoryId.isEmpty) {
+      return Response.json({'message': 'Accessory not found'}, 404);
+    }
+
+    final existingRows = await connection!.select(
+      '''
+      SELECT id, category, slot
+      FROM avatar_accessories
+      WHERE id = \$1
+      LIMIT 1
+      ''',
+      [accessoryId],
+    );
+    if (existingRows.isEmpty) {
+      return Response.json({'message': 'Accessory not found'}, 404);
+    }
+
+    final existing = existingRows.first;
+    final category =
+        _normalizeAccessoryCategory(body['category'] ?? existing['category']);
+    final slot = _normalizeAccessorySlot(
+      body['slot'] ?? existing['slot'],
+      fallbackCategory: category,
+    );
+
+    await connection!.statement(
+      '''
+      UPDATE avatar_accessories
+      SET
+        category = \$2,
+        slot = \$3,
+        layer_order = \$4,
+        scale = \$5,
+        offset_x = \$6,
+        offset_y = \$7,
+        rotation = \$8,
+        name = \$9,
+        image_url = \$10,
+        price_bling = \$11,
+        is_paid = \$12,
+        eligible_blingers = \$13,
+        updated_at = NOW()
+      WHERE id = \$1
+      ''',
+      [
+        accessoryId,
+        category,
+        slot,
+        _normalizeAccessoryLayerOrder(
+          body['layer_order'],
+          slot: slot,
+          category: category,
+        ),
+        _normalizeAccessoryScale(
+          body['scale'],
+          slot: slot,
+          category: category,
+        ),
+        _normalizeAccessoryOffsetX(
+          body['offset_x'],
+          slot: slot,
+          category: category,
+        ),
+        _normalizeAccessoryOffsetY(
+          body['offset_y'],
+          slot: slot,
+          category: category,
+        ),
+        _toDouble(body['rotation']),
+        _cleanString(body['name'], fallback: 'Accessory'),
+        _cleanString(body['image_url']),
+        _toInt(body['price_bling']),
+        body['is_paid'] == true ? 1 : 0,
+        _cleanString(
+          body['eligible_blingers'],
+          fallback: 'All / above level 2 etc',
+        ),
+      ],
+    );
+
+    return Response.json({'message': 'Accessory updated'}, 200);
   }
 
   Future<Response> getLeaderboards(Request request) async {
@@ -1254,6 +1372,158 @@ class AdminController extends Controller {
         return 220;
       default:
         return 160;
+    }
+  }
+
+  double _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double _normalizeAccessoryScale(
+    dynamic value, {
+    dynamic slot,
+    dynamic category,
+  }) {
+    final parsed = _toDouble(value);
+    if (parsed > 0) return parsed;
+    final normalizedSlot =
+        _normalizeAccessorySlot(slot, fallbackCategory: category);
+    return _defaultScaleForAccessorySlot(normalizedSlot);
+  }
+
+  double _normalizeAccessoryOffsetX(
+    dynamic value, {
+    dynamic slot,
+    dynamic category,
+  }) {
+    final parsed = _toDouble(value);
+    if (parsed != 0) return parsed;
+    final normalizedSlot =
+        _normalizeAccessorySlot(slot, fallbackCategory: category);
+    return _defaultOffsetXForAccessorySlot(normalizedSlot);
+  }
+
+  double _normalizeAccessoryOffsetY(
+    dynamic value, {
+    dynamic slot,
+    dynamic category,
+  }) {
+    final parsed = _toDouble(value);
+    if (parsed != 0) return parsed;
+    final normalizedSlot =
+        _normalizeAccessorySlot(slot, fallbackCategory: category);
+    return _defaultOffsetYForAccessorySlot(normalizedSlot);
+  }
+
+  double _defaultScaleForAccessorySlot(String slot) {
+    switch (slot) {
+      case 'outfit':
+      case 'torso':
+      case 'shirt':
+        return 0.9;
+      case 'waist':
+      case 'pants':
+      case 'legs':
+      case 'legwear':
+        return 0.8;
+      case 'shoe':
+      case 'shoes':
+      case 'foot':
+      case 'feet':
+      case 'ankle':
+        return 0.56;
+      case 'watch':
+      case 'left_wrist':
+      case 'right_wrist':
+      case 'wrist':
+      case 'bracelet':
+        return 0.24;
+      case 'hand':
+      case 'hands':
+      case 'prop':
+      case 'left_hand':
+      case 'right_hand':
+        return 0.34;
+      case 'glasses':
+      case 'eyes':
+      case 'eye':
+      case 'mask':
+      case 'face':
+        return 0.36;
+      case 'hair':
+      case 'hat':
+      case 'head':
+      case 'head_top':
+        return 0.54;
+      case 'neck':
+      case 'chain':
+      case 'necklace':
+        return 0.28;
+      default:
+        return 0.78;
+    }
+  }
+
+  double _defaultOffsetXForAccessorySlot(String slot) {
+    switch (slot) {
+      case 'watch':
+      case 'right_wrist':
+      case 'wrist':
+      case 'bracelet':
+      case 'hand':
+      case 'prop':
+      case 'right_hand':
+        return 0.17;
+      case 'left_wrist':
+      case 'left_hand':
+        return -0.17;
+      default:
+        return 0;
+    }
+  }
+
+  double _defaultOffsetYForAccessorySlot(String slot) {
+    switch (slot) {
+      case 'hair':
+      case 'hat':
+      case 'head':
+      case 'head_top':
+        return -0.10;
+      case 'glasses':
+      case 'eyes':
+      case 'eye':
+      case 'mask':
+      case 'face':
+        return -0.05;
+      case 'outfit':
+      case 'torso':
+      case 'shirt':
+        return -0.02;
+      case 'waist':
+      case 'pants':
+      case 'legs':
+      case 'legwear':
+        return 0.12;
+      case 'shoe':
+      case 'shoes':
+      case 'foot':
+      case 'feet':
+      case 'ankle':
+        return 0.24;
+      case 'watch':
+      case 'left_wrist':
+      case 'right_wrist':
+      case 'wrist':
+      case 'bracelet':
+      case 'hand':
+      case 'prop':
+      case 'left_hand':
+      case 'right_hand':
+        return 0.08;
+      default:
+        return 0;
     }
   }
 

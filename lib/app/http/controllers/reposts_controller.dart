@@ -5,6 +5,7 @@ import 'package:bling/app/models/notification_model.dart';
 import 'package:bling/app/models/posts.dart';
 import 'package:bling/app/models/reposts_model.dart';
 import 'package:bling/app/models/user.dart';
+import 'package:bling/services/feed_interaction_service.dart';
 import 'package:bling/services/fcm_service.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
@@ -48,6 +49,11 @@ class RepostsController extends Controller {
         'created_at': now,
         'updated_at': now,
       });
+      unawaited(FeedInteractionService.instance.record(
+        userId: authUserId,
+        postId: postId,
+        interactionType: 'repost',
+      ));
 
       final ownerId = post['user_id'] as String?;
       if (ownerId != null && ownerId != authUserId) {

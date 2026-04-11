@@ -7,6 +7,8 @@ import 'package:bling/app/models/likes_model.dart';
 import 'package:bling/app/models/notification_model.dart';
 import 'package:bling/app/models/posts.dart';
 import 'package:bling/app/models/user.dart';
+import 'package:bling/services/feed_interaction_service.dart';
+import 'package:bling/services/feed_recommendation_service.dart';
 import 'package:bling/services/fcm_service.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
@@ -21,141 +23,57 @@ class PostsController extends Controller {
         int.tryParse(request.input('limit')?.toString() ?? '10') ?? 10;
 
     try {
-      // Build block exclusion list for auth user
-      final List<String> blockedIds = [];
-      if (authUserId.isNotEmpty) {
-        final blockedByMe = await BlockModel()
-            .query()
-            .select(['blocked_user_id'])
-            .where('user_id', '=', authUserId)
-            .get();
-        final blockedMe = await BlockModel()
-            .query()
-            .select(['user_id'])
-            .where('blocked_user_id', '=', authUserId)
-            .get();
-        blockedIds.addAll((blockedByMe as List)
-            .whereType<Map>()
-            .map((r) => r['blocked_user_id'].toString()));
-        blockedIds.addAll((blockedMe as List)
-            .whereType<Map>()
-            .map((r) => r['user_id'].toString()));
+      final blockedIds = await _loadBlockedUserIds(authUserId);
+      final likedPostIds = await _loadLikedPostIds(authUserId);
+      final total = await _countActiveFeedPosts(blockedIds);
+
+      final recommendationWindow = page * limit;
+      final recommendedIds =
+          await FeedRecommendationService.instance.recommendPostIds(
+        authUserId: authUserId,
+        blockedUserIds: blockedIds,
+        limit: recommendationWindow,
+      );
+      final pageRecommendedIds =
+          recommendedIds.skip((page - 1) * limit).take(limit).toList();
+
+      final recommendedRows = await _loadPostsByIds(pageRecommendedIds);
+      final rows = <Map<String, dynamic>>[...recommendedRows];
+
+      if (rows.length < limit) {
+        final chronologicalRows = await _loadChronologicalFeedRows(
+          blockedIds: blockedIds,
+          limit: limit * 4,
+          page: page,
+        );
+        final seenIds = rows
+            .map((item) => item['id']?.toString() ?? '')
+            .where((item) => item.isNotEmpty)
+            .toSet();
+        for (final row in chronologicalRows) {
+          final postId = row['id']?.toString() ?? '';
+          if (postId.isEmpty || seenIds.contains(postId)) continue;
+          seenIds.add(postId);
+          rows.add(row);
+          if (rows.length >= limit) break;
+        }
       }
 
-      var postsQuery = Posts()
-          .query()
-          .select([
-            'posts.id',
-            'posts.user_id',
-            'posts.caption',
-            'posts.post_type',
-            'posts.image_url',
-            'posts.thumbnail_url',
-            'posts.video_url',
-            'posts.media_kind',
-            'posts.storage_bucket',
-            'posts.storage_path',
-            'posts.mime_type',
-            'posts.is_active',
-            'posts.created_at',
-            'users.name as user_name',
-            'users.username as user_username',
-            'users.avatar as user_avatar',
-            'users.is_verified as user_is_verified',
-          ])
-          .selectRaw(
-              'COALESCE(COUNT(DISTINCT comments.id), 0) AS comment_count, '
-              'COALESCE(COUNT(DISTINCT likes.id), 0) AS like_count, '
-              "COALESCE(MIN(posts.hashtags::TEXT), '[]') AS extracted_hashtags, "
-              "COALESCE(MIN(posts.media::TEXT), '[]') AS media")
-          .leftJoin('users', 'users.id', '=', 'posts.user_id')
-          .leftJoin('comments', 'comments.post_id', '=', 'posts.id')
-          .leftJoin('likes', 'likes.post_id', '=', 'posts.id')
-          .where('posts.is_active', '=', 1);
+      final data = rows
+          .take(limit)
+          .map((post) => _mapFeedRow(post, likedPostIds))
+          .toList();
 
-      for (final id in blockedIds) {
-        postsQuery = postsQuery.where('posts.user_id', '!=', id);
-      }
-
-      final posts = await postsQuery
-          .groupBy([
-            'posts.id',
-            'posts.user_id',
-            'posts.caption',
-            'posts.post_type',
-            'posts.image_url',
-            'posts.thumbnail_url',
-            'posts.video_url',
-            'posts.media_kind',
-            'posts.storage_bucket',
-            'posts.storage_path',
-            'posts.mime_type',
-            'posts.is_active',
-            'posts.created_at',
-            'users.name',
-            'users.username',
-            'users.avatar',
-            'users.is_verified',
-          ])
-          .orderBy('posts.created_at', 'DESC')
-          .paginate(limit, page);
-
-      // Check which posts the auth user has liked
-      List<String> likedPostIds = [];
-      if (authUserId.isNotEmpty) {
-        final liked =
-            await LikesModel().query().where('user_id', '=', authUserId).get();
-        likedPostIds = (liked as List)
-            .whereType<Map>()
-            .map((l) => l['post_id']?.toString() ?? '')
-            .toList();
-      }
-
-      final rows = (posts['data'] as List<dynamic>).whereType<Map>();
-      final data = rows.map((post) {
-        return {
-          'id': post['id'],
-          'user_id': post['user_id'],
-          'user_name': post['user_name'],
-          'user_username': post['user_username'],
-          'user_avatar': post['user_avatar'],
-          'user_is_verified': post['user_is_verified'],
-          'caption': post['caption'],
-          'post_type': post['post_type']?.trim(),
-          'media': _decodeMediaText(
-            post['media'],
-            imageUrl: post['image_url']?.toString() ?? '',
-            thumbnailUrl: post['thumbnail_url']?.toString() ?? '',
-            videoUrl: post['video_url']?.toString() ?? '',
-            mediaKind: post['media_kind']?.toString() ?? 'image',
-            bucket: post['storage_bucket']?.toString() ?? '',
-            path: post['storage_path']?.toString() ?? '',
-            mimeType: post['mime_type']?.toString() ?? '',
-          ),
-          'image_url': post['image_url'],
-          'thumbnail_url': post['thumbnail_url'] ?? '',
-          'video_url': post['video_url'] ?? '',
-          'media_kind': post['media_kind'] ?? 'image',
-          'storage_bucket': post['storage_bucket'] ?? '',
-          'storage_path': post['storage_path'] ?? '',
-          'mime_type': post['mime_type'] ?? '',
-          'is_active': post['is_active'],
-          'created_at': post['created_at'].toString(),
-          'comment_count': post['comment_count'] ?? 0,
-          'like_count': post['like_count'] ?? 0,
-          'extracted_hashtags': post['extracted_hashtags'] ?? '[]',
-          'is_liked': likedPostIds.contains(post['id']?.toString()),
-          'item_type': 'post',
-        };
-      }).toList();
+      final lastPage = total == 0 ? 1 : ((total + limit - 1) ~/ limit);
+      final nextPage = page < lastPage ? page + 1 : null;
 
       return Response.json({
         'feed': {
-          'total': posts['total'],
-          'per_page': posts['perPage'],
-          'page': posts['page'],
-          'last_page': posts['lastPage'],
-          'next_page': posts['nextPage'],
+          'total': total,
+          'per_page': limit,
+          'page': page,
+          'last_page': lastPage,
+          'next_page': nextPage,
           'data': data,
         }
       }, HttpStatus.ok);
@@ -346,6 +264,7 @@ class PostsController extends Controller {
       }
 
       await Posts().query().insert(body);
+      unawaited(FeedRecommendationService.instance.indexPost(body));
 
       // Increment user bling_score for posting
       await User().query().where('id', '=', authUserId).update({
@@ -390,8 +309,38 @@ class PostsController extends Controller {
       'is_active': 0,
       'updated_at': DateTime.now().toIso8601String(),
     });
+    unawaited(FeedRecommendationService.instance.deletePost(postId));
 
     return Response.json({'message': 'Post deleted'}, 200);
+  }
+
+  Future<Response> recordFeedInteraction(Request request, [dynamic _]) async {
+    final authUserId = request.input('auth_user_id') as String? ?? '';
+    if (authUserId.isEmpty) {
+      return Response.json({'message': 'Unauthenticated'}, 401);
+    }
+
+    final postId = request.body['post_id']?.toString() ?? '';
+    final interactionType = request.body['interaction_type']?.toString() ?? '';
+    if (postId.isEmpty || interactionType.trim().isEmpty) {
+      return Response.json(
+        {'message': 'post_id and interaction_type are required'},
+        422,
+      );
+    }
+
+    await FeedInteractionService.instance.record(
+      userId: authUserId,
+      postId: postId,
+      interactionType: interactionType,
+      source: request.body['source']?.toString() ?? 'feed',
+      dwellMs: int.tryParse(request.body['dwell_ms']?.toString() ?? '0') ?? 0,
+      metadata: request.body['metadata'] is Map
+          ? Map<String, dynamic>.from(request.body['metadata'] as Map)
+          : null,
+    );
+
+    return Response.json({'message': 'Interaction recorded'}, 200);
   }
 
   /// POST /api/posts/:id/like  (authenticated) - toggle like
@@ -433,6 +382,11 @@ class PostsController extends Controller {
         'created_at': now,
         'updated_at': now,
       });
+      unawaited(FeedInteractionService.instance.record(
+        userId: authUserId,
+        postId: postId,
+        interactionType: 'like',
+      ));
       final liker = await User().query().where('id', '=', authUserId).first();
 
       // Create notification for post owner (if not self-like)
@@ -501,6 +455,12 @@ class PostsController extends Controller {
         now
       ],
     );
+    unawaited(FeedInteractionService.instance.record(
+      userId: authUserId,
+      postId: postId,
+      interactionType: 'comment',
+      source: 'comments',
+    ));
 
     // Notify post owner
     if (post['user_id'] != authUserId) {
@@ -944,6 +904,211 @@ class PostsController extends Controller {
         'storage_path': path,
         'mime_type': mimeType,
       }
+    ];
+  }
+
+  Future<List<String>> _loadBlockedUserIds(String authUserId) async {
+    if (authUserId.isEmpty) return const [];
+    final blockedIds = <String>{};
+    final blockedByMe = await BlockModel()
+        .query()
+        .select(['blocked_user_id'])
+        .where('user_id', '=', authUserId)
+        .get();
+    final blockedMe = await BlockModel()
+        .query()
+        .select(['user_id'])
+        .where('blocked_user_id', '=', authUserId)
+        .get();
+    blockedIds.addAll((blockedByMe as List)
+        .whereType<Map>()
+        .map((r) => r['blocked_user_id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty));
+    blockedIds.addAll((blockedMe as List)
+        .whereType<Map>()
+        .map((r) => r['user_id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty));
+    return blockedIds.toList();
+  }
+
+  Future<Set<String>> _loadLikedPostIds(String authUserId) async {
+    if (authUserId.isEmpty) return const {};
+    final liked =
+        await LikesModel().query().where('user_id', '=', authUserId).get();
+    return (liked as List)
+        .whereType<Map>()
+        .map((item) => item['post_id']?.toString() ?? '')
+        .where((item) => item.isNotEmpty)
+        .toSet();
+  }
+
+  Future<int> _countActiveFeedPosts(List<String> blockedIds) async {
+    final blockedClause = blockedIds.isEmpty
+        ? ''
+        : 'AND p.user_id NOT IN (${blockedIds.map((id) => "'$id'").join(',')})';
+    final rows = await connection!.select(
+      '''
+      SELECT COUNT(*) AS count
+      FROM posts p
+      WHERE p.is_active = 1
+      $blockedClause
+      ''',
+      [],
+    );
+    return int.tryParse(rows.first['count']?.toString() ?? '0') ?? 0;
+  }
+
+  Future<List<Map<String, dynamic>>> _loadChronologicalFeedRows({
+    required List<String> blockedIds,
+    required int limit,
+    required int page,
+  }) async {
+    var query = Posts()
+        .query()
+        .select(_feedSelectColumns())
+        .selectRaw(_feedSelectRaw())
+        .leftJoin('users', 'users.id', '=', 'posts.user_id')
+        .leftJoin('comments', 'comments.post_id', '=', 'posts.id')
+        .leftJoin('likes', 'likes.post_id', '=', 'posts.id')
+        .where('posts.is_active', '=', 1);
+
+    for (final id in blockedIds) {
+      query = query.where('posts.user_id', '!=', id);
+    }
+
+    final posts = await query
+        .groupBy(_feedGroupByColumns())
+        .orderBy('posts.created_at', 'DESC')
+        .paginate(limit, page);
+
+    return (posts['data'] as List<dynamic>)
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadPostsByIds(
+      List<String> postIds) async {
+    if (postIds.isEmpty) return const [];
+    final placeholders = List.generate(
+      postIds.length,
+      (index) => '\$${index + 1}',
+    ).join(',');
+
+    final rows = await connection!.select(
+      '''
+      SELECT p.id, p.user_id, p.caption, p.post_type, p.image_url,
+             p.thumbnail_url, p.video_url, p.media_kind, p.storage_bucket,
+             p.storage_path, p.mime_type, p.is_active, p.created_at,
+             u.name AS user_name, u.username AS user_username,
+             u.avatar AS user_avatar, u.is_verified AS user_is_verified,
+             COALESCE((SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id::text), 0) AS comment_count,
+             COALESCE((SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id::text), 0) AS like_count,
+             COALESCE(p.hashtags::TEXT, '[]') AS extracted_hashtags,
+             COALESCE(p.media::TEXT, '[]') AS media
+      FROM posts p
+      INNER JOIN users u ON u.id = p.user_id
+      WHERE p.is_active = 1
+        AND p.id IN ($placeholders)
+      ''',
+      postIds,
+    );
+
+    final mapped = {
+      for (final row in rows)
+        row['id']?.toString() ?? '': Map<String, dynamic>.from(row),
+    };
+    return postIds
+        .map((id) => mapped[id])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+  }
+
+  Map<String, dynamic> _mapFeedRow(Map post, Set<String> likedPostIds) {
+    return {
+      'id': post['id'],
+      'user_id': post['user_id'],
+      'user_name': post['user_name'],
+      'user_username': post['user_username'],
+      'user_avatar': post['user_avatar'],
+      'user_is_verified': post['user_is_verified'],
+      'caption': post['caption'],
+      'post_type': post['post_type']?.toString().trim(),
+      'media': _decodeMediaText(
+        post['media'],
+        imageUrl: post['image_url']?.toString() ?? '',
+        thumbnailUrl: post['thumbnail_url']?.toString() ?? '',
+        videoUrl: post['video_url']?.toString() ?? '',
+        mediaKind: post['media_kind']?.toString() ?? 'image',
+        bucket: post['storage_bucket']?.toString() ?? '',
+        path: post['storage_path']?.toString() ?? '',
+        mimeType: post['mime_type']?.toString() ?? '',
+      ),
+      'image_url': post['image_url'],
+      'thumbnail_url': post['thumbnail_url'] ?? '',
+      'video_url': post['video_url'] ?? '',
+      'media_kind': post['media_kind'] ?? 'image',
+      'storage_bucket': post['storage_bucket'] ?? '',
+      'storage_path': post['storage_path'] ?? '',
+      'mime_type': post['mime_type'] ?? '',
+      'is_active': post['is_active'],
+      'created_at': post['created_at'].toString(),
+      'comment_count': post['comment_count'] ?? 0,
+      'like_count': post['like_count'] ?? 0,
+      'extracted_hashtags': post['extracted_hashtags'] ?? '[]',
+      'is_liked': likedPostIds.contains(post['id']?.toString()),
+      'item_type': 'post',
+    };
+  }
+
+  List<String> _feedSelectColumns() {
+    return [
+      'posts.id',
+      'posts.user_id',
+      'posts.caption',
+      'posts.post_type',
+      'posts.image_url',
+      'posts.thumbnail_url',
+      'posts.video_url',
+      'posts.media_kind',
+      'posts.storage_bucket',
+      'posts.storage_path',
+      'posts.mime_type',
+      'posts.is_active',
+      'posts.created_at',
+      'users.name as user_name',
+      'users.username as user_username',
+      'users.avatar as user_avatar',
+      'users.is_verified as user_is_verified',
+    ];
+  }
+
+  String _feedSelectRaw() {
+    return 'COALESCE(COUNT(DISTINCT comments.id), 0) AS comment_count, '
+        'COALESCE(COUNT(DISTINCT likes.id), 0) AS like_count, '
+        "COALESCE(MIN(posts.hashtags::TEXT), '[]') AS extracted_hashtags, "
+        "COALESCE(MIN(posts.media::TEXT), '[]') AS media";
+  }
+
+  List<String> _feedGroupByColumns() {
+    return [
+      'posts.id',
+      'posts.user_id',
+      'posts.caption',
+      'posts.post_type',
+      'posts.image_url',
+      'posts.thumbnail_url',
+      'posts.video_url',
+      'posts.media_kind',
+      'posts.storage_bucket',
+      'posts.storage_path',
+      'posts.mime_type',
+      'posts.is_active',
+      'posts.created_at',
+      'users.name',
+      'users.username',
+      'users.avatar',
+      'users.is_verified',
     ];
   }
 

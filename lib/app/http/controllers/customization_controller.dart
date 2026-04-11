@@ -40,7 +40,7 @@ class CustomizationController extends Controller {
     };
     final accessoryRows = await connection!.select(
       '''
-      SELECT id, avatar_id, category, slot, layer_order, name, image_url, price_bling, is_paid, owners_count, eligible_blingers, status
+      SELECT id, avatar_id, category, slot, layer_order, scale, offset_x, offset_y, rotation, name, image_url, price_bling, is_paid, owners_count, eligible_blingers, status
       FROM avatar_accessories
       WHERE status = 'active'
       ORDER BY layer_order ASC, created_at DESC
@@ -395,7 +395,7 @@ class CustomizationController extends Controller {
 
     final rows = await connection!.select(
       '''
-      SELECT id, category, image_url, price_bling, is_paid, owners_count
+      SELECT id, category, slot, scale, offset_x, offset_y, rotation, image_url, price_bling, is_paid, owners_count
       FROM avatar_accessories
       WHERE id = \$1 AND status = 'active'
       LIMIT 1
@@ -469,7 +469,7 @@ class CustomizationController extends Controller {
 
     final rows = await connection!.select(
       '''
-      SELECT id, category, image_url, price_bling, is_paid
+      SELECT id, category, slot, scale, offset_x, offset_y, rotation, image_url, price_bling, is_paid
       FROM avatar_accessories
       WHERE id = \$1 AND status = 'active'
       LIMIT 1
@@ -612,6 +612,12 @@ class CustomizationController extends Controller {
     return int.tryParse(value?.toString() ?? '0') ?? 0;
   }
 
+  double _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
   Map<String, dynamic> _formatAccessoryRow(
     Map<String, dynamic> row,
     Map<String, dynamic> ownedAccessories,
@@ -626,6 +632,10 @@ class CustomizationController extends Controller {
         fallbackCategory: row['category'],
       ),
       'layer_order': _toInt(row['layer_order']),
+      'scale': _resolveAccessoryScale(row),
+      'offset_x': _resolveAccessoryOffsetX(row),
+      'offset_y': _resolveAccessoryOffsetY(row),
+      'rotation': _toDouble(row['rotation']),
       'name': row['name']?.toString() ?? '',
       'image_url': row['image_url']?.toString() ?? '',
       'price_bling': _toInt(row['price_bling']),
@@ -642,7 +652,7 @@ class CustomizationController extends Controller {
   ) async {
     final rows = await connection!.select(
       '''
-      SELECT aa.id, aa.category, aa.slot, aa.layer_order, aa.name, aa.image_url
+      SELECT aa.id, aa.category, aa.slot, aa.layer_order, aa.scale, aa.offset_x, aa.offset_y, aa.rotation, aa.name, aa.image_url
       FROM user_accessory_inventory uai
       INNER JOIN avatar_accessories aa ON aa.id = uai.accessory_id
       WHERE uai.user_id = \$1
@@ -662,6 +672,10 @@ class CustomizationController extends Controller {
                 fallbackCategory: row['category'],
               ),
               'layer_order': _toInt(row['layer_order']),
+              'scale': _resolveAccessoryScale(row),
+              'offset_x': _resolveAccessoryOffsetX(row),
+              'offset_y': _resolveAccessoryOffsetY(row),
+              'rotation': _toDouble(row['rotation']),
               'name': _cleanString(row['name']),
               'image_url': _cleanString(row['image_url']),
             })
@@ -722,6 +736,132 @@ class CustomizationController extends Controller {
     if (slot.isNotEmpty) return slot;
     final category = fallbackCategory?.toString().trim().toLowerCase() ?? '';
     return category == 'outfit' ? 'outfit' : 'accessory_main';
+  }
+
+  double _resolveAccessoryScale(Map<String, dynamic> row) {
+    final explicit = _toDouble(row['scale']);
+    if (explicit > 0) return explicit;
+    return _defaultScaleForSlot(
+      _normalizeAccessorySlot(row['slot'], fallbackCategory: row['category']),
+    );
+  }
+
+  double _resolveAccessoryOffsetX(Map<String, dynamic> row) {
+    final explicit = _toDouble(row['offset_x']);
+    if (explicit != 0) return explicit;
+    return _defaultOffsetXForSlot(
+      _normalizeAccessorySlot(row['slot'], fallbackCategory: row['category']),
+    );
+  }
+
+  double _resolveAccessoryOffsetY(Map<String, dynamic> row) {
+    final explicit = _toDouble(row['offset_y']);
+    if (explicit != 0) return explicit;
+    return _defaultOffsetYForSlot(
+      _normalizeAccessorySlot(row['slot'], fallbackCategory: row['category']),
+    );
+  }
+
+  double _defaultScaleForSlot(String slot) {
+    if (slot == 'outfit' || slot == 'torso' || slot == 'shirt') return 0.9;
+    if (slot == 'waist' ||
+        slot == 'pants' ||
+        slot == 'legs' ||
+        slot == 'legwear') {
+      return 0.8;
+    }
+    if (slot == 'shoe' ||
+        slot == 'shoes' ||
+        slot == 'foot' ||
+        slot == 'feet' ||
+        slot == 'ankle') {
+      return 0.56;
+    }
+    if (slot == 'watch' ||
+        slot == 'left_wrist' ||
+        slot == 'right_wrist' ||
+        slot == 'wrist' ||
+        slot == 'bracelet') {
+      return 0.24;
+    }
+    if (slot == 'hand' ||
+        slot == 'hands' ||
+        slot == 'prop' ||
+        slot == 'left_hand' ||
+        slot == 'right_hand') {
+      return 0.34;
+    }
+    if (slot == 'glasses' ||
+        slot == 'eyes' ||
+        slot == 'eye' ||
+        slot == 'mask' ||
+        slot == 'face') {
+      return 0.36;
+    }
+    if (slot == 'hair' ||
+        slot == 'hat' ||
+        slot == 'head' ||
+        slot == 'head_top') {
+      return 0.54;
+    }
+    if (slot == 'neck' || slot == 'chain' || slot == 'necklace') return 0.28;
+    return 0.78;
+  }
+
+  double _defaultOffsetXForSlot(String slot) {
+    if (slot == 'watch' ||
+        slot == 'right_wrist' ||
+        slot == 'wrist' ||
+        slot == 'bracelet' ||
+        slot == 'hand' ||
+        slot == 'prop' ||
+        slot == 'right_hand') {
+      return 0.17;
+    }
+    if (slot == 'left_wrist' || slot == 'left_hand') return -0.17;
+    return 0;
+  }
+
+  double _defaultOffsetYForSlot(String slot) {
+    if (slot == 'hair' ||
+        slot == 'hat' ||
+        slot == 'head' ||
+        slot == 'head_top') {
+      return -0.10;
+    }
+    if (slot == 'glasses' ||
+        slot == 'eyes' ||
+        slot == 'eye' ||
+        slot == 'mask' ||
+        slot == 'face') {
+      return -0.05;
+    }
+    if (slot == 'outfit' || slot == 'torso' || slot == 'shirt') return -0.02;
+    if (slot == 'waist' ||
+        slot == 'pants' ||
+        slot == 'legs' ||
+        slot == 'legwear') {
+      return 0.12;
+    }
+    if (slot == 'shoe' ||
+        slot == 'shoes' ||
+        slot == 'foot' ||
+        slot == 'feet' ||
+        slot == 'ankle') {
+      return 0.24;
+    }
+    if (slot == 'watch' ||
+        slot == 'left_wrist' ||
+        slot == 'right_wrist' ||
+        slot == 'wrist' ||
+        slot == 'bracelet' ||
+        slot == 'hand' ||
+        slot == 'prop' ||
+        slot == 'left_hand' ||
+        slot == 'right_hand') {
+      return 0.08;
+    }
+    return 0;
   }
 }
 

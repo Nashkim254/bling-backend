@@ -427,7 +427,7 @@ class AuthController extends Controller {
           );
     final equippedLayers = await connection!.select(
       '''
-      SELECT aa.id, aa.category, aa.slot, aa.layer_order, aa.name, aa.image_url
+      SELECT aa.id, aa.category, aa.slot, aa.layer_order, aa.scale, aa.offset_x, aa.offset_y, aa.rotation, aa.name, aa.image_url
       FROM user_accessory_inventory uai
       INNER JOIN avatar_accessories aa ON aa.id = uai.accessory_id
       WHERE uai.user_id = \$1
@@ -461,6 +461,10 @@ class AuthController extends Controller {
                 ),
                 'layer_order':
                     int.tryParse(row['layer_order']?.toString() ?? '0') ?? 0,
+                'scale': _resolveAccessoryScale(row),
+                'offset_x': _resolveAccessoryOffsetX(row),
+                'offset_y': _resolveAccessoryOffsetY(row),
+                'rotation': _toDouble(row['rotation']),
                 'name': row['name']?.toString().trim() ?? '',
                 'image_url': row['image_url']?.toString().trim() ?? '',
               })
@@ -537,6 +541,138 @@ class AuthController extends Controller {
     if (slot.isNotEmpty) return slot;
     final category = fallbackCategory?.toString().trim().toLowerCase() ?? '';
     return category == 'outfit' ? 'outfit' : 'accessory_main';
+  }
+
+  double _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double _resolveAccessoryScale(Map<String, dynamic> row) {
+    final explicit = _toDouble(row['scale']);
+    if (explicit > 0) return explicit;
+    return _defaultScaleForSlot(
+      _normalizeAccessorySlot(row['slot'], fallbackCategory: row['category']),
+    );
+  }
+
+  double _resolveAccessoryOffsetX(Map<String, dynamic> row) {
+    final explicit = _toDouble(row['offset_x']);
+    if (explicit != 0) return explicit;
+    return _defaultOffsetXForSlot(
+      _normalizeAccessorySlot(row['slot'], fallbackCategory: row['category']),
+    );
+  }
+
+  double _resolveAccessoryOffsetY(Map<String, dynamic> row) {
+    final explicit = _toDouble(row['offset_y']);
+    if (explicit != 0) return explicit;
+    return _defaultOffsetYForSlot(
+      _normalizeAccessorySlot(row['slot'], fallbackCategory: row['category']),
+    );
+  }
+
+  double _defaultScaleForSlot(String slot) {
+    if (slot == 'outfit' || slot == 'torso' || slot == 'shirt') return 0.9;
+    if (slot == 'waist' ||
+        slot == 'pants' ||
+        slot == 'legs' ||
+        slot == 'legwear') {
+      return 0.8;
+    }
+    if (slot == 'shoe' ||
+        slot == 'shoes' ||
+        slot == 'foot' ||
+        slot == 'feet' ||
+        slot == 'ankle') {
+      return 0.56;
+    }
+    if (slot == 'watch' ||
+        slot == 'left_wrist' ||
+        slot == 'right_wrist' ||
+        slot == 'wrist' ||
+        slot == 'bracelet') {
+      return 0.24;
+    }
+    if (slot == 'hand' ||
+        slot == 'hands' ||
+        slot == 'prop' ||
+        slot == 'left_hand' ||
+        slot == 'right_hand') {
+      return 0.34;
+    }
+    if (slot == 'glasses' ||
+        slot == 'eyes' ||
+        slot == 'eye' ||
+        slot == 'mask' ||
+        slot == 'face') {
+      return 0.36;
+    }
+    if (slot == 'hair' ||
+        slot == 'hat' ||
+        slot == 'head' ||
+        slot == 'head_top') {
+      return 0.54;
+    }
+    if (slot == 'neck' || slot == 'chain' || slot == 'necklace') return 0.28;
+    return 0.78;
+  }
+
+  double _defaultOffsetXForSlot(String slot) {
+    if (slot == 'watch' ||
+        slot == 'right_wrist' ||
+        slot == 'wrist' ||
+        slot == 'bracelet' ||
+        slot == 'hand' ||
+        slot == 'prop' ||
+        slot == 'right_hand') {
+      return 0.17;
+    }
+    if (slot == 'left_wrist' || slot == 'left_hand') return -0.17;
+    return 0;
+  }
+
+  double _defaultOffsetYForSlot(String slot) {
+    if (slot == 'hair' ||
+        slot == 'hat' ||
+        slot == 'head' ||
+        slot == 'head_top') {
+      return -0.10;
+    }
+    if (slot == 'glasses' ||
+        slot == 'eyes' ||
+        slot == 'eye' ||
+        slot == 'mask' ||
+        slot == 'face') {
+      return -0.05;
+    }
+    if (slot == 'outfit' || slot == 'torso' || slot == 'shirt') return -0.02;
+    if (slot == 'waist' ||
+        slot == 'pants' ||
+        slot == 'legs' ||
+        slot == 'legwear') {
+      return 0.12;
+    }
+    if (slot == 'shoe' ||
+        slot == 'shoes' ||
+        slot == 'foot' ||
+        slot == 'feet' ||
+        slot == 'ankle') {
+      return 0.24;
+    }
+    if (slot == 'watch' ||
+        slot == 'left_wrist' ||
+        slot == 'right_wrist' ||
+        slot == 'wrist' ||
+        slot == 'bracelet' ||
+        slot == 'hand' ||
+        slot == 'prop' ||
+        slot == 'left_hand' ||
+        slot == 'right_hand') {
+      return 0.08;
+    }
+    return 0;
   }
 
   /// GET /api/users?search=&page=&limit=

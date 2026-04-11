@@ -68,6 +68,10 @@ class ApiRoute implements Route {
         '/admin/resources/avatars/{id}/accessories',
         adminController.createAccessory,
       );
+      Router.put(
+        '/admin/resources/accessories/{id}',
+        adminController.updateAccessory,
+      );
       Router.get(
         '/admin/resources/leaderboards',
         adminController.getLeaderboards,
@@ -118,6 +122,7 @@ class ApiRoute implements Route {
 
       // Feed & Posts
       Router.get('/feed', postsController.getFeed);
+      Router.post('/feed/interactions', postsController.recordFeedInteraction);
       Router.get('/posts', postsController.getPosts);
       Router.post('/posts', postsController.createPost);
       Router.get('/posts/{id}', postsController.getPost);
