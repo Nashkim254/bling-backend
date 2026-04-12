@@ -4,7 +4,9 @@ import 'dart:io';
 import 'package:bling/app/models/challenge_entry.dart';
 import 'package:bling/app/models/challenges_model.dart';
 import 'package:bling/app/models/notification_model.dart';
+import 'package:bling/app/models/bling_transaction.dart';
 import 'package:bling/app/models/user.dart';
+import 'package:bling/app/models/wallet.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
@@ -263,6 +265,13 @@ class ChallengesController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
+    final challengeId = const Uuid().v4();
+    final now = DateTime.now().toIso8601String();
+    final prizeBling =
+        int.tryParse(request.body['prize_bling']?.toString() ?? '0') ?? 0;
+    int deductedPrizeAmount = 0;
+    int previousBalance = 0;
+
     try {
       final media = _normalizeMediaInput(request.body['media']);
       final legacyMedia = _legacyFieldsFromMedia(
@@ -275,8 +284,35 @@ class ChallengesController extends Controller {
         fallbackPath: request.body['storage_path']?.toString() ?? '',
         fallbackMimeType: request.body['mime_type']?.toString() ?? '',
       );
-      final challengeId = const Uuid().v4();
-      final now = DateTime.now().toIso8601String();
+
+      if (prizeBling > 0) {
+        final wallet =
+            await Wallet().query().where('user_id', '=', authUserId).first();
+        previousBalance = (wallet?['balance'] as num?)?.toInt() ?? 0;
+        if (previousBalance < prizeBling) {
+          return Response.json({
+            'message': 'Not enough Bling to fund this prize pool',
+          }, 400);
+        }
+
+        await Wallet().query().where('user_id', '=', authUserId).update({
+          'balance': previousBalance - prizeBling,
+          'updated_at': now,
+        });
+        deductedPrizeAmount = prizeBling;
+
+        await BlingTransaction().query().insert({
+          'id': const Uuid().v4(),
+          'user_id': authUserId,
+          'to_user_id': null,
+          'type': 'challenge_prize_fund',
+          'amount': prizeBling,
+          'reference': challengeId,
+          'description': 'Funded challenge prize pool',
+          'created_at': now,
+          'updated_at': now,
+        });
+      }
 
       final body = <String, dynamic>{
         'id': challengeId,
@@ -292,8 +328,7 @@ class ChallengesController extends Controller {
         'storage_bucket': legacyMedia['storage_bucket'],
         'storage_path': legacyMedia['storage_path'],
         'mime_type': legacyMedia['mime_type'],
-        'prize_bling':
-            int.tryParse(request.body['prize_bling']?.toString() ?? '0') ?? 0,
+        'prize_bling': prizeBling,
         'is_active': 1,
         'created_at': now,
         'updated_at': now,
@@ -304,8 +339,29 @@ class ChallengesController extends Controller {
       return Response.json({
         'message': 'Challenge created successfully',
         'challenge_id': challengeId,
+        'new_balance': ((await Wallet()
+                    .query()
+                    .where('user_id', '=', authUserId)
+                    .first())?['balance'] as num?)
+                ?.toInt() ??
+            0,
       }, 201);
     } catch (e) {
+      if (deductedPrizeAmount > 0) {
+        await Wallet().query().where('user_id', '=', authUserId).update({
+          'balance': previousBalance,
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+
+        await connection!.statement(
+          '''
+          DELETE FROM bling_transactions
+          WHERE reference = \$1 AND type = 'challenge_prize_fund'
+          ''',
+          [challengeId],
+        );
+      }
+
       return Response.json({
         'message': 'Error creating challenge',
         'error': e.toString(),

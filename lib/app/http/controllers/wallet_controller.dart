@@ -222,8 +222,10 @@ class WalletController extends Controller {
   /// Body: { to_user_id, amount, message?, context? }
   /// context: 'direct' (default) | 'post_tip' | 'challenge_tip'
   ///
-  /// Commission (PLATFORM_COMMISSION_RATE %) is applied when context != 'direct'.
-  /// Sender pays the full amount; recipient receives amount minus fee.
+  /// Phase 1 rules:
+  /// - direct peer-to-peer transfers are disabled
+  /// - creator support is consumed as platform spend
+  /// - creators receive visibility credit, not wallet balance
   Future<Response> transferBling(Request request) async {
     request.validate({
       'to_user_id': 'required|string',
@@ -242,7 +244,9 @@ class WalletController extends Controller {
     final toUserId = body['to_user_id'] as String;
     final amount = int.tryParse(body['amount']?.toString() ?? '0') ?? 0;
     final message = body['message'] as String? ?? '';
-    final context = body['context'] as String? ?? 'direct';
+    final context = _normalizeTransferContext(
+      body['context']?.toString() ?? 'direct',
+    );
 
     if (toUserId == authUserId) {
       return Response.json({'message': 'Cannot transfer to yourself'}, 400);
@@ -256,13 +260,19 @@ class WalletController extends Controller {
       return Response.json({'message': 'Recipient not found'}, 404);
     }
 
+    if (context == 'direct') {
+      return Response.json({
+        'message': 'Direct Bling transfers are disabled in phase 1',
+      }, 403);
+    }
+
     // ── Commission ────────────────────────────────────────────────────────
-    final isTip = context == 'post_tip' || context == 'challenge_tip';
+    final isTip = _isCreatorSupportContext(context);
     final commissionRate =
         int.tryParse(Platform.environment['PLATFORM_COMMISSION_RATE'] ?? '5') ??
             5;
     final feeAmount = isTip ? (amount * commissionRate / 100).floor() : 0;
-    final recipientAmount = amount - feeAmount;
+    final creatorCredit = amount - feeAmount;
 
     // ── Check sender balance ──────────────────────────────────────────────
     final senderWallet =
@@ -283,60 +293,19 @@ class WalletController extends Controller {
       'updated_at': now,
     });
 
-    // ── Credit recipient (amount minus fee) ───────────────────────────────
-    var recipientWallet =
-        await Wallet().query().where('user_id', '=', toUserId).first();
-    if (recipientWallet == null) {
-      await Wallet().query().insert({
-        'id': const Uuid().v4(),
-        'user_id': toUserId,
-        'balance': recipientAmount,
-        'created_at': now,
-        'updated_at': now,
-      });
-    } else {
-      final newRecipientBalance =
-          (recipientWallet['balance'] as num).toInt() + recipientAmount;
-      await Wallet().query().where('user_id', '=', toUserId).update({
-        'balance': newRecipientBalance,
-        'updated_at': now,
-      });
-    }
-
-    // ── Sender transaction (full debit) ───────────────────────────────────
+    // ── Sender transaction (full spend) ───────────────────────────────────
     await BlingTransaction().query().insert({
       'id': const Uuid().v4(),
       'user_id': authUserId,
       'to_user_id': toUserId,
-      'type': 'transfer_out',
+      'type': 'support_spend',
       'amount': amount,
       'reference': transferReference,
       'fee_amount': feeAmount,
       'context': context,
       'description': message.isNotEmpty
-          ? 'Tipped ${recipient['name']}: $message'
-          : isTip
-              ? 'Tipped ${recipient['name']}'
-              : 'Sent to ${recipient['name']}',
-      'created_at': now,
-      'updated_at': now,
-    });
-
-    // ── Recipient transaction (amount received after fee) ─────────────────
-    await BlingTransaction().query().insert({
-      'id': const Uuid().v4(),
-      'user_id': toUserId,
-      'to_user_id': authUserId,
-      'type': 'transfer_in',
-      'amount': recipientAmount,
-      'reference': transferReference,
-      'fee_amount': feeAmount,
-      'context': context,
-      'description': message.isNotEmpty
-          ? 'Tip from ${sender?['name']}: $message'
-          : isTip
-              ? 'Tip from ${sender?['name']}'
-              : 'Received from ${sender?['name']}',
+          ? 'Supported ${recipient['name']}: $message'
+          : 'Supported ${recipient['name']}',
       'created_at': now,
       'updated_at': now,
     });
@@ -352,29 +321,33 @@ class WalletController extends Controller {
         'reference': transferReference,
         'fee_amount': feeAmount,
         'context': context,
-        'description': '${commissionRate}% tip commission on ${amount} Bling',
+        'description': '$commissionRate% tip commission on $amount Bling',
         'created_at': now,
         'updated_at': now,
       });
     }
 
+    // ── Creator visibility / support credit ───────────────────────────────
+    final currentRecipientScore =
+        (recipient['bling_score'] as num?)?.toInt() ?? 0;
+    await User().query().where('id', '=', toUserId).update({
+      'bling_score': currentRecipientScore + creatorCredit,
+      'updated_at': now,
+    });
+
     // ── Notify recipient ──────────────────────────────────────────────────
-    final notifBody = isTip
-        ? message.isNotEmpty
-            ? '${sender?['name']} tipped you $recipientAmount Bling ($feeAmount fee): $message'
-            : '${sender?['name']} tipped you $recipientAmount Bling'
-        : message.isNotEmpty
-            ? '${sender?['name']} sent you $amount Bling: $message'
-            : '${sender?['name']} sent you $amount Bling';
+    final notifBody = message.isNotEmpty
+        ? '${sender?['name']} supported you with $creatorCredit Bling credit: $message'
+        : '${sender?['name']} supported you with $creatorCredit Bling credit';
 
     await NotificationModel().query().insert({
       'id': const Uuid().v4(),
       'user_id': toUserId,
-      'type': isTip ? 'tip_received' : 'bling_received',
-      'title': isTip ? 'You got a tip!' : 'Bling Received!',
+      'type': 'creator_supported',
+      'title': 'You got support!',
       'body': notifBody,
       'data':
-          '{"amount":$recipientAmount,"fee":$feeAmount,"from_user_id":"$authUserId"}',
+          '{"amount":$creatorCredit,"fee":$feeAmount,"from_user_id":"$authUserId","context":"$context"}',
       'is_read': 0,
       'created_at': now,
       'updated_at': now,
@@ -383,11 +356,11 @@ class WalletController extends Controller {
     // Push to recipient
     unawaited(FcmService.instance.sendToUser(
       toUserId,
-      title: isTip ? 'You got a tip! 💰' : 'Bling Received! 💎',
+      title: 'You got support! 💰',
       body: notifBody,
       data: {
-        'type': isTip ? 'tip_received' : 'bling_received',
-        'amount': recipientAmount.toString(),
+        'type': 'creator_supported',
+        'amount': creatorCredit.toString(),
         'from_user_id': authUserId
       },
     ));
@@ -395,30 +368,43 @@ class WalletController extends Controller {
     // Push to sender (confirmation)
     unawaited(FcmService.instance.sendToUser(
       authUserId,
-      title: isTip ? 'Tip Sent!' : 'Transfer Complete',
-      body: isTip
-          ? 'You tipped ${recipient['name']} $recipientAmount Bling'
-          : 'You sent $amount Bling to ${recipient['name']}',
+      title: 'Support Sent!',
+      body: 'You supported ${recipient['name']} with $amount Bling',
       data: {
-        'type': 'transfer_sent',
+        'type': 'support_sent',
         'amount': amount.toString(),
         'to_user_id': toUserId
       },
     ));
 
     return Response.json({
-      'message': isTip
-          ? 'Tip sent! ${recipient['name']} received $recipientAmount Bling.'
-          : 'Bling transferred successfully',
+      'message': 'Support sent successfully',
       'reference': transferReference,
-      'amount_sent': amount,
-      'recipient_received': recipientAmount,
+      'amount_spent': amount,
+      'creator_credit': creatorCredit,
       'fee': feeAmount,
-      'commission_rate': isTip ? commissionRate : 0,
+      'commission_rate': commissionRate,
       'new_balance': newSenderBalance,
       'recipient': recipient['name'],
       'created_at': now,
     }, HttpStatus.ok);
+  }
+
+  bool _isCreatorSupportContext(String context) =>
+      context == 'post_tip' || context == 'challenge_tip';
+
+  String _normalizeTransferContext(String context) {
+    switch (context.trim()) {
+      case 'post_support':
+        return 'post_tip';
+      case 'challenge_support':
+        return 'challenge_tip';
+      case 'post_tip':
+      case 'challenge_tip':
+        return context.trim();
+      default:
+        return 'direct';
+    }
   }
 }
 

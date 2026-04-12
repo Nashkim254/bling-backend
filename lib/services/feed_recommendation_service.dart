@@ -19,29 +19,41 @@ class FeedRecommendationService {
 
   Future<void> backfillRecentPosts({int limit = 250}) async {
     if (!isEnabled) return;
-    final rows = await connection!.select(
-      '''
-      SELECT id, user_id, caption, post_type, hashtags::TEXT AS hashtags, media_kind, is_active, created_at
-      FROM posts
-      WHERE is_active = 1
-      ORDER BY created_at DESC
-      LIMIT \$1
-      ''',
-      [limit],
-    );
+    try {
+      final rows = await connection!.select(
+        '''
+        SELECT id, user_id, caption, post_type, hashtags::TEXT AS hashtags, media_kind, is_active, created_at
+        FROM posts
+        WHERE is_active = 1
+        ORDER BY created_at DESC
+        LIMIT \$1
+        ''',
+        [limit],
+      );
 
-    final points = rows.map(_postRowToPoint).toList();
-    await _qdrantService.upsertPosts(points);
+      final points = rows.map(_postRowToPoint).toList();
+      await _qdrantService.upsertPosts(points);
+    } catch (error) {
+      _logSoftFailure('backfillRecentPosts', error);
+    }
   }
 
   Future<void> indexPost(Map<String, dynamic> row) async {
     if (!isEnabled) return;
-    await _qdrantService.upsertPosts([_postRowToPoint(row)]);
+    try {
+      await _qdrantService.upsertPosts([_postRowToPoint(row)]);
+    } catch (error) {
+      _logSoftFailure('indexPost', error);
+    }
   }
 
   Future<void> deletePost(String postId) async {
     if (!isEnabled || postId.trim().isEmpty) return;
-    await _qdrantService.deletePosts([postId.trim()]);
+    try {
+      await _qdrantService.deletePosts([postId.trim()]);
+    } catch (error) {
+      _logSoftFailure('deletePost', error);
+    }
   }
 
   Future<List<String>> recommendPostIds({
@@ -50,38 +62,42 @@ class FeedRecommendationService {
     required int limit,
   }) async {
     if (!isEnabled || authUserId.trim().isEmpty || limit <= 0) return const [];
+    try {
+      await backfillRecentPosts();
 
-    await backfillRecentPosts();
+      final positiveIds = await _loadPositivePostIds(authUserId);
+      if (positiveIds.isEmpty) return const [];
 
-    final positiveIds = await _loadPositivePostIds(authUserId);
-    if (positiveIds.isEmpty) return const [];
+      final candidates = await _qdrantService.recommendByPostIds(
+        positivePostIds: positiveIds,
+        limit: limit * 4,
+      );
 
-    final candidates = await _qdrantService.recommendByPostIds(
-      positivePostIds: positiveIds,
-      limit: limit * 4,
-    );
+      final seen = <String>{...positiveIds};
+      final perUserCount = <String, int>{};
+      final results = <String>[];
 
-    final seen = <String>{...positiveIds};
-    final perUserCount = <String, int>{};
-    final results = <String>[];
+      for (final candidate in candidates) {
+        if (candidate.postId.isEmpty) continue;
+        if (seen.contains(candidate.postId)) continue;
+        if (blockedUserIds.contains(candidate.userId)) continue;
 
-    for (final candidate in candidates) {
-      if (candidate.postId.isEmpty) continue;
-      if (seen.contains(candidate.postId)) continue;
-      if (blockedUserIds.contains(candidate.userId)) continue;
+        final userCount = perUserCount[candidate.userId] ?? 0;
+        if (candidate.userId.isNotEmpty && userCount >= 2) continue;
 
-      final userCount = perUserCount[candidate.userId] ?? 0;
-      if (candidate.userId.isNotEmpty && userCount >= 2) continue;
-
-      seen.add(candidate.postId);
-      if (candidate.userId.isNotEmpty) {
-        perUserCount[candidate.userId] = userCount + 1;
+        seen.add(candidate.postId);
+        if (candidate.userId.isNotEmpty) {
+          perUserCount[candidate.userId] = userCount + 1;
+        }
+        results.add(candidate.postId);
+        if (results.length >= limit) break;
       }
-      results.add(candidate.postId);
-      if (results.length >= limit) break;
-    }
 
-    return results;
+      return results;
+    } catch (error) {
+      _logSoftFailure('recommendPostIds', error);
+      return const [];
+    }
   }
 
   Future<List<String>> _loadPositivePostIds(String authUserId) async {
@@ -163,5 +179,9 @@ class FeedRecommendationService {
         }),
       },
     };
+  }
+
+  void _logSoftFailure(String operation, Object error) {
+    print('FeedRecommendationService.$operation soft failure: $error');
   }
 }

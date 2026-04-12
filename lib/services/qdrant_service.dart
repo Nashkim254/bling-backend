@@ -141,4 +141,18 @@ class QdrantService {
         .where((item) => item.postId.isNotEmpty)
         .toList();
   }
+
+  Future<bool> isReachable() async {
+    if (!isEnabled) return false;
+
+    try {
+      final response = await http.get(
+        Uri.parse(_baseUrl),
+        headers: _headers,
+      );
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (_) {
+      return false;
+    }
+  }
 }
