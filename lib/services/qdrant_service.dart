@@ -36,6 +36,20 @@ class QdrantService {
       256;
 
   bool get isEnabled => _baseUrl.trim().isNotEmpty;
+  bool get _logEnabled {
+    final value =
+        (Platform.environment['QDRANT_LOGS'] ?? env('QDRANT_LOGS', '') ?? '')
+            .toString();
+    final normalized = value.trim().toLowerCase();
+    return normalized == '1' ||
+        normalized == 'true' ||
+        normalized == 'yes' ||
+        normalized == 'on';
+  }
+
+  Uri? get _baseUri => Uri.tryParse(_baseUrl);
+  String get _safeBase =>
+      '${_baseUri?.scheme ?? 'unknown'}://${_baseUri?.host ?? _baseUrl}${_baseUri?.hasPort == true ? ':${_baseUri!.port}' : ''}';
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
@@ -44,6 +58,8 @@ class QdrantService {
 
   Future<void> ensureCollection() async {
     if (!isEnabled || _collectionReady) return;
+    final startedAt = DateTime.now();
+    _log('ensureCollection:start collection=$_collection vector_size=$_vectorSize');
 
     final response = await http.put(
       Uri.parse('$_baseUrl/collections/$_collection'),
@@ -56,10 +72,22 @@ class QdrantService {
       }),
     );
 
-    if (response.statusCode >= 200 && response.statusCode < 300) {
+    final responseBody = response.body.toLowerCase();
+    final alreadyExists = response.statusCode == 409 &&
+        responseBody.contains('already exists');
+
+    if ((response.statusCode >= 200 && response.statusCode < 300) ||
+        alreadyExists) {
       _collectionReady = true;
+      _log(
+        'ensureCollection:ok status=${response.statusCode} already_exists=$alreadyExists duration_ms=${DateTime.now().difference(startedAt).inMilliseconds}',
+      );
       return;
     }
+
+    _log(
+      'ensureCollection:error status=${response.statusCode} duration_ms=${DateTime.now().difference(startedAt).inMilliseconds}',
+    );
 
     throw HttpException(
       'Failed to ensure Qdrant collection: ${response.statusCode} ${response.body}',
@@ -69,6 +97,8 @@ class QdrantService {
   Future<void> upsertPosts(List<Map<String, dynamic>> points) async {
     if (!isEnabled || points.isEmpty) return;
     await ensureCollection();
+    final startedAt = DateTime.now();
+    _log('upsertPosts:start collection=$_collection points=${points.length}');
 
     final response = await http.put(
       Uri.parse('$_baseUrl/collections/$_collection/points?wait=true'),
@@ -77,15 +107,24 @@ class QdrantService {
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      _log(
+        'upsertPosts:error status=${response.statusCode} duration_ms=${DateTime.now().difference(startedAt).inMilliseconds}',
+      );
       throw HttpException(
         'Failed to upsert Qdrant points: ${response.statusCode} ${response.body}',
       );
     }
+
+    _log(
+      'upsertPosts:ok status=${response.statusCode} duration_ms=${DateTime.now().difference(startedAt).inMilliseconds}',
+    );
   }
 
   Future<void> deletePosts(List<String> postIds) async {
     if (!isEnabled || postIds.isEmpty) return;
     await ensureCollection();
+    final startedAt = DateTime.now();
+    _log('deletePosts:start collection=$_collection points=${postIds.length}');
 
     final response = await http.post(
       Uri.parse('$_baseUrl/collections/$_collection/points/delete?wait=true'),
@@ -96,10 +135,17 @@ class QdrantService {
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      _log(
+        'deletePosts:error status=${response.statusCode} duration_ms=${DateTime.now().difference(startedAt).inMilliseconds}',
+      );
       throw HttpException(
         'Failed to delete Qdrant points: ${response.statusCode} ${response.body}',
       );
     }
+
+    _log(
+      'deletePosts:ok status=${response.statusCode} duration_ms=${DateTime.now().difference(startedAt).inMilliseconds}',
+    );
   }
 
   Future<List<QdrantRecommendation>> recommendByPostIds({
@@ -108,6 +154,10 @@ class QdrantService {
   }) async {
     if (!isEnabled || positivePostIds.isEmpty || limit <= 0) return const [];
     await ensureCollection();
+    final startedAt = DateTime.now();
+    _log(
+      'recommendByPostIds:start collection=$_collection positives=${positivePostIds.length} limit=$limit',
+    );
 
     final response = await http.post(
       Uri.parse('$_baseUrl/collections/$_collection/points/recommend'),
@@ -120,6 +170,9 @@ class QdrantService {
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      _log(
+        'recommendByPostIds:error status=${response.statusCode} duration_ms=${DateTime.now().difference(startedAt).inMilliseconds}',
+      );
       throw HttpException(
         'Failed to recommend Qdrant points: ${response.statusCode} ${response.body}',
       );
@@ -127,7 +180,7 @@ class QdrantService {
 
     final decoded = jsonDecode(response.body);
     final items = (decoded['result'] as List? ?? []).whereType<Map>();
-    return items
+    final results = items
         .map((item) {
           final payload =
               (item['payload'] as Map?)?.cast<String, dynamic>() ?? {};
@@ -140,19 +193,37 @@ class QdrantService {
         })
         .where((item) => item.postId.isNotEmpty)
         .toList();
+
+    _log(
+      'recommendByPostIds:ok status=${response.statusCode} results=${results.length} duration_ms=${DateTime.now().difference(startedAt).inMilliseconds}',
+    );
+    return results;
   }
 
   Future<bool> isReachable() async {
     if (!isEnabled) return false;
+    final startedAt = DateTime.now();
 
     try {
       final response = await http.get(
         Uri.parse(_baseUrl),
         headers: _headers,
       );
-      return response.statusCode >= 200 && response.statusCode < 300;
+      final ok = response.statusCode >= 200 && response.statusCode < 300;
+      _log(
+        'isReachable:${ok ? 'ok' : 'error'} status=${response.statusCode} duration_ms=${DateTime.now().difference(startedAt).inMilliseconds}',
+      );
+      return ok;
     } catch (_) {
+      _log(
+        'isReachable:error duration_ms=${DateTime.now().difference(startedAt).inMilliseconds}',
+      );
       return false;
     }
+  }
+
+  void _log(String message) {
+    if (!_logEnabled) return;
+    print('[Qdrant] base=$_safeBase $message');
   }
 }

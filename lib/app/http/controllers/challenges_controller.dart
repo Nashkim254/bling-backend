@@ -44,6 +44,8 @@ class ChallengesController extends Controller {
             'challenges.storage_path',
             'challenges.mime_type',
             'challenges.prize_bling',
+            'challenges.entry_fee_bling',
+            'challenges.judging_type',
             'challenges.is_active',
             'challenges.ends_at',
             'challenges.created_at',
@@ -73,6 +75,8 @@ class ChallengesController extends Controller {
             'challenges.storage_path',
             'challenges.mime_type',
             'challenges.prize_bling',
+            'challenges.entry_fee_bling',
+            'challenges.judging_type',
             'challenges.is_active',
             'challenges.ends_at',
             'challenges.created_at',
@@ -127,6 +131,8 @@ class ChallengesController extends Controller {
           'storage_path': ch['storage_path'] ?? '',
           'mime_type': ch['mime_type'] ?? '',
           'prize_bling': ch['prize_bling'],
+          'entry_fee_bling': ch['entry_fee_bling'] ?? 0,
+          'judging_type': ch['judging_type'] ?? 'hybrid',
           'is_active': ch['is_active'],
           'ends_at': ch['ends_at']?.toString(),
           'entry_count': ch['entry_count'] ?? 0,
@@ -162,7 +168,7 @@ class ChallengesController extends Controller {
         SELECT c.id, c.user_id, c.title, c.description, c.hashtags, c.image_url, c.media::TEXT AS media,
                c.thumbnail_url, c.video_url, c.media_kind,
                c.storage_bucket, c.storage_path, c.mime_type,
-               c.prize_bling, c.is_active, c.ends_at, c.created_at,
+               c.prize_bling, c.entry_fee_bling, c.judging_type, c.is_active, c.ends_at, c.created_at,
                u.name AS user_name, u.username AS user_username,
                u.avatar AS user_avatar, u.is_verified AS user_is_verified,
                COALESCE((SELECT COUNT(*) FROM challenge_entries ce
@@ -178,10 +184,27 @@ class ChallengesController extends Controller {
 
       final participants = await connection!.select('''
         SELECT ce.id, ce.user_id, ce.post_id, ce.is_winner, ce.created_at,
-               u.name AS user_name, u.username AS user_username, u.avatar AS user_avatar
+               u.name AS user_name, u.username AS user_username, u.avatar AS user_avatar,
+               u.is_verified AS user_is_verified,
+               p.user_id AS post_user_id, p.caption AS post_caption, p.post_type AS post_type, p.image_url AS post_image_url,
+               p.thumbnail_url AS post_thumbnail_url, p.video_url AS post_video_url,
+               p.media_kind AS post_media_kind, p.storage_bucket AS post_storage_bucket,
+               p.storage_path AS post_storage_path, p.mime_type AS post_mime_type,
+               COALESCE(p.media::TEXT, '[]') AS post_media,
+               COALESCE(COUNT(DISTINCT l.id), 0) AS post_like_count,
+               COALESCE(COUNT(DISTINCT c.id), 0) AS post_comment_count,
+               p.is_active AS post_is_active, p.created_at AS post_created_at
         FROM challenge_entries ce
         JOIN users u ON u.id = ce.user_id
+        LEFT JOIN posts p ON p.id = ce.post_id AND p.is_active = 1
+        LEFT JOIN likes l ON l.post_id = p.id
+        LEFT JOIN comments c ON c.post_id = p.id
         WHERE ce.challenge_id = \$1
+        GROUP BY ce.id, ce.user_id, ce.post_id, ce.is_winner, ce.created_at,
+                 u.name, u.username, u.avatar,
+                 p.user_id, p.caption, p.post_type, p.image_url,
+                 p.thumbnail_url, p.video_url, p.media_kind, p.storage_bucket,
+                 p.storage_path, p.mime_type, p.media::TEXT, p.is_active, p.created_at
         ORDER BY ce.created_at DESC
       ''', [challengeId]);
 
@@ -196,6 +219,11 @@ class ChallengesController extends Controller {
       }
 
       final participantRows = participants.whereType<Map>();
+
+      final finalistIds = await _loadFinalistEntryIds(challengeId);
+      final finalistRanks = <String, int>{
+        for (var i = 0; i < finalistIds.length; i++) finalistIds[i]: i + 1,
+      };
 
       return Response.json({
         'challenge': {
@@ -226,6 +254,8 @@ class ChallengesController extends Controller {
           'storage_path': ch['storage_path'] ?? '',
           'mime_type': ch['mime_type'] ?? '',
           'prize_bling': ch['prize_bling'],
+          'entry_fee_bling': ch['entry_fee_bling'] ?? 0,
+          'judging_type': ch['judging_type'] ?? 'hybrid',
           'is_active': ch['is_active'],
           'ends_at': ch['ends_at']?.toString(),
           'entry_count': ch['entry_count'] ?? 0,
@@ -236,12 +266,55 @@ class ChallengesController extends Controller {
             .map((p) => {
                   'id': p['id']?.toString(),
                   'user_id': p['user_id']?.toString(),
-                  'user_name': p['user_name'],
+                 'user_name': p['user_name'],
                   'user_username': p['user_username'],
                   'user_avatar': p['user_avatar'],
+                  'user_is_verified':
+                      p['user_is_verified'] == 1 ||
+                          p['user_is_verified'] == true,
                   'post_id': p['post_id']?.toString(),
                   'is_winner': p['is_winner'] == 1 || p['is_winner'] == true,
                   'joined_at': p['created_at'].toString(),
+                  'is_finalist': finalistRanks.containsKey(
+                    p['id']?.toString() ?? '',
+                  ),
+                  'finalist_rank': finalistRanks[p['id']?.toString() ?? ''],
+                  'post': p['post_id'] == null
+                      ? null
+                      : {
+                          'id': p['post_id']?.toString(),
+                          'user_id': p['post_user_id']?.toString(),
+                          'caption': p['post_caption'] ?? '',
+                          'post_type': p['post_type']?.toString().trim(),
+                          'media': _decodeMediaText(
+                            p['post_media'],
+                            imageUrl: p['post_image_url']?.toString() ?? '',
+                            thumbnailUrl:
+                                p['post_thumbnail_url']?.toString() ?? '',
+                            videoUrl: p['post_video_url']?.toString() ?? '',
+                            mediaKind:
+                                p['post_media_kind']?.toString() ?? 'image',
+                            bucket:
+                                p['post_storage_bucket']?.toString() ?? '',
+                            path: p['post_storage_path']?.toString() ?? '',
+                            mimeType: p['post_mime_type']?.toString() ?? '',
+                          ),
+                          'image_url': p['post_image_url'] ?? '',
+                          'thumbnail_url': p['post_thumbnail_url'] ?? '',
+                          'video_url': p['post_video_url'] ?? '',
+                          'media_kind': p['post_media_kind'] ?? 'image',
+                          'storage_bucket': p['post_storage_bucket'] ?? '',
+                          'storage_path': p['post_storage_path'] ?? '',
+                          'mime_type': p['post_mime_type'] ?? '',
+                          'is_active': p['post_is_active'] ?? 1,
+                          'created_at': p['post_created_at']?.toString() ??
+                              p['created_at'].toString(),
+                          'comment_count': p['post_comment_count'] ?? 0,
+                          'like_count': p['post_like_count'] ?? 0,
+                          'extracted_hashtags': '[]',
+                          'is_liked': false,
+                          'item_type': 'post',
+                        },
                 })
             .toList(),
       }, 200);
@@ -269,6 +342,9 @@ class ChallengesController extends Controller {
     final now = DateTime.now().toIso8601String();
     final prizeBling =
         int.tryParse(request.body['prize_bling']?.toString() ?? '0') ?? 0;
+    final entryFeeBling =
+        int.tryParse(request.body['entry_fee_bling']?.toString() ?? '0') ?? 0;
+    final endsAt = _resolveEndsAt(request.body['ends_at']?.toString());
     int deductedPrizeAmount = 0;
     int previousBalance = 0;
 
@@ -329,7 +405,10 @@ class ChallengesController extends Controller {
         'storage_path': legacyMedia['storage_path'],
         'mime_type': legacyMedia['mime_type'],
         'prize_bling': prizeBling,
+        'entry_fee_bling': entryFeeBling,
+        'judging_type': 'hybrid',
         'is_active': 1,
+        'ends_at': endsAt,
         'created_at': now,
         'updated_at': now,
       };
@@ -386,6 +465,9 @@ class ChallengesController extends Controller {
     if (challenge['is_active'] == 0) {
       return Response.json({'message': 'Challenge is no longer active'}, 400);
     }
+    if (_isChallengeEnded(challenge)) {
+      return Response.json({'message': 'Challenge has ended'}, 400);
+    }
 
     // Check if already entered
     final existing = await ChallengeEntry()
@@ -399,17 +481,82 @@ class ChallengesController extends Controller {
 
     final now = DateTime.now().toIso8601String();
     final entryId = const Uuid().v4();
-    final postId = request.body['post_id'] as String?;
+    final postId = request.body['post_id']?.toString();
+    if (postId == null || postId.trim().isEmpty) {
+      return Response.json({'message': 'Challenge entry post is required'}, 422);
+    }
 
-    await ChallengeEntry().query().insert({
-      'id': entryId,
-      'challenge_id': challengeId,
-      'user_id': authUserId,
-      'post_id': postId,
-      'is_winner': 0,
-      'created_at': now,
-      'updated_at': now,
-    });
+    final post = await connection!.select(
+      '''
+      SELECT id, user_id, is_active
+      FROM posts
+      WHERE id = \$1
+      ''',
+      [postId],
+    );
+    if (post.isEmpty ||
+        post.first['user_id']?.toString() != authUserId ||
+        post.first['is_active'] != 1) {
+      return Response.json({'message': 'Invalid challenge entry post'}, 422);
+    }
+
+    final entryFeeBling =
+        int.tryParse(challenge['entry_fee_bling']?.toString() ?? '0') ?? 0;
+    int previousBalance = 0;
+    if (entryFeeBling > 0) {
+      final wallet =
+          await Wallet().query().where('user_id', '=', authUserId).first();
+      previousBalance = (wallet?['balance'] as num?)?.toInt() ?? 0;
+      if (previousBalance < entryFeeBling) {
+        return Response.json({
+          'message': 'Not enough Bling to submit an entry',
+        }, 400);
+      }
+
+      await Wallet().query().where('user_id', '=', authUserId).update({
+        'balance': previousBalance - entryFeeBling,
+        'updated_at': now,
+      });
+
+      await BlingTransaction().query().insert({
+        'id': const Uuid().v4(),
+        'user_id': authUserId,
+        'to_user_id': null,
+        'type': 'challenge_entry_fee',
+        'amount': entryFeeBling,
+        'reference': challengeId,
+        'description': 'Submitted a challenge entry',
+        'created_at': now,
+        'updated_at': now,
+      });
+    }
+
+    try {
+      await ChallengeEntry().query().insert({
+        'id': entryId,
+        'challenge_id': challengeId,
+        'user_id': authUserId,
+        'post_id': postId,
+        'is_winner': 0,
+        'created_at': now,
+        'updated_at': now,
+      });
+    } catch (e) {
+      if (entryFeeBling > 0) {
+        await Wallet().query().where('user_id', '=', authUserId).update({
+          'balance': previousBalance,
+          'updated_at': now,
+        });
+        await connection!.statement(
+          '''
+          DELETE FROM bling_transactions
+          WHERE user_id = \$1 AND reference = \$2 AND type = 'challenge_entry_fee'
+          ''',
+          [authUserId, challengeId],
+        );
+      }
+      rethrow;
+    }
 
     // Notify challenge creator
     if (challenge['user_id'] != authUserId) {
@@ -430,9 +577,139 @@ class ChallengesController extends Controller {
     }
 
     return Response.json({
-      'message': 'Joined challenge successfully',
+      'message': 'Challenge entry submitted successfully',
       'entry_id': entryId,
+      'new_balance': entryFeeBling > 0
+          ? ((await Wallet()
+                      .query()
+                      .where('user_id', '=', authUserId)
+                      .first())?['balance'] as num?)
+                  ?.toInt() ??
+              0
+          : null,
     }, 201);
+  }
+
+  Future<Response> awardWinner(Request request, [dynamic _]) async {
+    final challengeId = request.params()['id'] as String? ?? '';
+    final authUserId = _authUserId(request);
+    final entryId = request.body['entry_id']?.toString() ?? '';
+
+    if (authUserId.isEmpty) {
+      return Response.json({'message': 'Unauthenticated'}, 401);
+    }
+    if (entryId.isEmpty) {
+      return Response.json({'message': 'entry_id is required'}, 422);
+    }
+
+    final challenge =
+        await ChallengesModel().query().where('id', '=', challengeId).first();
+    if (challenge == null) {
+      return Response.json({'message': 'Challenge not found'}, 404);
+    }
+    if (challenge['user_id']?.toString() != authUserId) {
+      return Response.json({'message': 'Forbidden'}, 403);
+    }
+    if (!_isChallengeEnded(challenge)) {
+      return Response.json({
+        'message': 'Challenge must be ended before a winner is selected',
+      }, 400);
+    }
+    if ((challenge['judging_type']?.toString() ?? 'hybrid') == 'hybrid') {
+      final finalistIds = await _loadFinalistEntryIds(challengeId);
+      if (!finalistIds.contains(entryId)) {
+        return Response.json({
+          'message': 'Winner must be selected from the finalist entries',
+        }, 400);
+      }
+    }
+
+    final existingWinner = await ChallengeEntry()
+        .query()
+        .where('challenge_id', '=', challengeId)
+        .where('is_winner', '=', 1)
+        .first();
+    if (existingWinner != null) {
+      return Response.json({'message': 'Winner already selected'}, 409);
+    }
+
+    final entry = await ChallengeEntry()
+        .query()
+        .where('id', '=', entryId)
+        .where('challenge_id', '=', challengeId)
+        .first();
+    if (entry == null) {
+      return Response.json({'message': 'Challenge entry not found'}, 404);
+    }
+
+    final prizeBling =
+        int.tryParse(challenge['prize_bling']?.toString() ?? '0') ?? 0;
+    final winnerUserId = entry['user_id']?.toString() ?? '';
+    final now = DateTime.now().toIso8601String();
+
+    await ChallengeEntry().query().where('id', '=', entryId).update({
+      'is_winner': 1,
+      'updated_at': now,
+    });
+    await ChallengesModel().query().where('id', '=', challengeId).update({
+      'is_active': 0,
+      'updated_at': now,
+    });
+
+    if (prizeBling > 0 && winnerUserId.isNotEmpty) {
+      var wallet =
+          await Wallet().query().where('user_id', '=', winnerUserId).first();
+      if (wallet == null) {
+        final walletId = const Uuid().v4();
+        await Wallet().query().insert({
+          'id': walletId,
+          'user_id': winnerUserId,
+          'balance': 0,
+          'created_at': now,
+          'updated_at': now,
+        });
+        wallet = {'balance': 0};
+      }
+
+      final currentBalance = (wallet['balance'] as num?)?.toInt() ?? 0;
+      await Wallet().query().where('user_id', '=', winnerUserId).update({
+        'balance': currentBalance + prizeBling,
+        'updated_at': now,
+      });
+
+      await BlingTransaction().query().insert({
+        'id': const Uuid().v4(),
+        'user_id': winnerUserId,
+        'to_user_id': null,
+        'type': 'challenge_prize_award',
+        'amount': prizeBling,
+        'reference': challengeId,
+        'description': 'Won a challenge prize',
+        'created_at': now,
+        'updated_at': now,
+      });
+    }
+
+    if (winnerUserId.isNotEmpty) {
+      await NotificationModel().query().insert({
+        'id': const Uuid().v4(),
+        'user_id': winnerUserId,
+        'type': 'challenge_winner',
+        'title': 'You won a challenge',
+        'body': prizeBling > 0
+            ? 'You won ${challenge['title']} and received $prizeBling Bling.'
+            : 'You were selected as the winner of ${challenge['title']}.',
+        'data': '{"challenge_id":"$challengeId","entry_id":"$entryId"}',
+        'is_read': 0,
+        'created_at': now,
+        'updated_at': now,
+      });
+    }
+
+    return Response.json({
+      'message': 'Winner selected successfully',
+      'winner_entry_id': entryId,
+    }, 200);
   }
 
   List<Map<String, dynamic>> _normalizeMediaInput(dynamic rawMedia) {
@@ -572,6 +849,47 @@ class ChallengesController extends Controller {
       );
     }
     return jsonEncode(<String>[]);
+  }
+
+  String _resolveEndsAt(String? rawValue) {
+    final parsed = rawValue == null ? null : DateTime.tryParse(rawValue);
+    return (parsed ?? DateTime.now().add(const Duration(days: 7)))
+        .toIso8601String();
+  }
+
+  bool _isChallengeEnded(Map challenge) {
+    final endsAt = DateTime.tryParse(challenge['ends_at']?.toString() ?? '');
+    if (endsAt == null) return false;
+    return DateTime.now().isAfter(endsAt);
+  }
+
+  Future<List<String>> _loadFinalistEntryIds(
+    String challengeId, {
+    int limit = 5,
+  }) async {
+    final rows = await connection!.select(
+      '''
+      SELECT ce.id,
+             COALESCE(COUNT(DISTINCT l.id), 0) AS like_count,
+             COALESCE(COUNT(DISTINCT c.id), 0) AS comment_count,
+             ce.created_at
+      FROM challenge_entries ce
+      LEFT JOIN posts p ON p.id = ce.post_id AND p.is_active = 1
+      LEFT JOIN likes l ON l.post_id = p.id
+      LEFT JOIN comments c ON c.post_id = p.id
+      WHERE ce.challenge_id = \$1
+      GROUP BY ce.id, ce.created_at
+      ORDER BY like_count DESC, comment_count DESC, ce.created_at ASC
+      LIMIT \$2
+      ''',
+      [challengeId, limit],
+    );
+
+    return rows
+        .whereType<Map>()
+        .map((row) => row['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
   }
 }
 

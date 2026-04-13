@@ -14,6 +14,17 @@ import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
 class PostsController extends Controller {
+  bool get _feedLogEnabled {
+    final value =
+        (Platform.environment['FEED_RECOMMENDATION_LOGS'] ??
+                env('FEED_RECOMMENDATION_LOGS', '') ??
+                '')
+            .toString()
+            .trim()
+            .toLowerCase();
+    return value == '1' || value == 'true' || value == 'yes' || value == 'on';
+  }
+
   /// GET /api/feed?page=&limit=  (authenticated)
   /// Returns global feed interleaved with ads every 5 posts
   Future<Response> getFeed(Request request) async {
@@ -39,6 +50,8 @@ class PostsController extends Controller {
 
       final recommendedRows = await _loadPostsByIds(pageRecommendedIds);
       final rows = <Map<String, dynamic>>[...recommendedRows];
+      final recommendedUsed = recommendedRows.length;
+      int fallbackAdded = 0;
 
       if (rows.length < limit) {
         final chronologicalRows = await _loadChronologicalFeedRows(
@@ -55,6 +68,7 @@ class PostsController extends Controller {
           if (postId.isEmpty || seenIds.contains(postId)) continue;
           seenIds.add(postId);
           rows.add(row);
+          fallbackAdded += 1;
           if (rows.length >= limit) break;
         }
       }
@@ -66,6 +80,17 @@ class PostsController extends Controller {
 
       final lastPage = total == 0 ? 1 : ((total + limit - 1) ~/ limit);
       final nextPage = page < lastPage ? page + 1 : null;
+
+      _logFeedMix(
+        authUserId: authUserId,
+        page: page,
+        limit: limit,
+        recommendationWindow: recommendationWindow,
+        recommendedRequested: pageRecommendedIds.length,
+        recommendedUsed: recommendedUsed,
+        fallbackAdded: fallbackAdded,
+        finalCount: data.length,
+      );
 
       return Response.json({
         'feed': {
@@ -83,6 +108,22 @@ class PostsController extends Controller {
         'error': e.toString(),
       }, HttpStatus.internalServerError);
     }
+  }
+
+  void _logFeedMix({
+    required String authUserId,
+    required int page,
+    required int limit,
+    required int recommendationWindow,
+    required int recommendedRequested,
+    required int recommendedUsed,
+    required int fallbackAdded,
+    required int finalCount,
+  }) {
+    if (!_feedLogEnabled) return;
+    print(
+      '[Feed] auth_user_id=$authUserId page=$page limit=$limit rec_window=$recommendationWindow rec_requested=$recommendedRequested rec_used=$recommendedUsed fallback_added=$fallbackAdded final_count=$finalCount',
+    );
   }
 
   /// GET /api/posts?userId=&page=&limit=  (user's own posts)

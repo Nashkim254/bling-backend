@@ -115,6 +115,8 @@ class ApiRoute implements Route {
       // User profile
       Router.get('/user/profile', authController.getProfile);
       Router.put('/user/profile', authController.updateProfile);
+      Router.post(
+          '/user/verification/purchase', authController.purchaseVerificationBadge);
       Router.put('/user/fcm-token', authController.updateFcmToken);
       Router.put('/user/location', authController.updateLocation);
       Router.get('/users/nearby', authController.getNearbyUsers);
@@ -137,6 +139,8 @@ class ApiRoute implements Route {
       Router.post('/challenges', challengesController.createChallenge);
       Router.post(
           '/challenges/{id}/participate', challengesController.participate);
+      Router.post(
+          '/challenges/{id}/award', challengesController.awardWinner);
 
       // Groups
       Router.get('/groups', groupsController.getGroups);

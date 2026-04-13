@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:bling/services/content_embedding_service.dart';
 import 'package:bling/services/feed_interaction_service.dart';
@@ -16,6 +17,16 @@ class FeedRecommendationService {
   final _qdrantService = QdrantService.instance;
 
   bool get isEnabled => _qdrantService.isEnabled;
+  bool get _logEnabled {
+    final value =
+        (Platform.environment['FEED_RECOMMENDATION_LOGS'] ??
+                env('FEED_RECOMMENDATION_LOGS', '') ??
+                '')
+            .toString()
+            .trim()
+            .toLowerCase();
+    return value == '1' || value == 'true' || value == 'yes' || value == 'on';
+  }
 
   Future<void> backfillRecentPosts({int limit = 250}) async {
     if (!isEnabled) return;
@@ -66,7 +77,12 @@ class FeedRecommendationService {
       await backfillRecentPosts();
 
       final positiveIds = await _loadPositivePostIds(authUserId);
-      if (positiveIds.isEmpty) return const [];
+      if (positiveIds.isEmpty) {
+        _log(
+          'recommendPostIds:no_seeds auth_user_id=$authUserId limit=$limit',
+        );
+        return const [];
+      }
 
       final candidates = await _qdrantService.recommendByPostIds(
         positivePostIds: positiveIds,
@@ -93,6 +109,9 @@ class FeedRecommendationService {
         if (results.length >= limit) break;
       }
 
+      _log(
+        'recommendPostIds:ok auth_user_id=$authUserId seeds=${positiveIds.length} candidates=${candidates.length} results=${results.length} blocked=${blockedUserIds.length} limit=$limit',
+      );
       return results;
     } catch (error) {
       _logSoftFailure('recommendPostIds', error);
@@ -183,5 +202,10 @@ class FeedRecommendationService {
 
   void _logSoftFailure(String operation, Object error) {
     print('FeedRecommendationService.$operation soft failure: $error');
+  }
+
+  void _log(String message) {
+    if (!_logEnabled) return;
+    print('[FeedRec] $message');
   }
 }

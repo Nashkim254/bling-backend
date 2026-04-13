@@ -11,6 +11,8 @@ import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
 class AuthController extends Controller {
+  static const int verificationBadgeCost = 1500;
+
   /// POST /api/register
   Future<Response> register(Request request) async {
     request.validate({
@@ -266,6 +268,81 @@ class AuthController extends Controller {
         'created_at': user['created_at'].toString(),
       }
     }, HttpStatus.ok);
+  }
+
+  Future<Response> purchaseVerificationBadge(Request request) async {
+    final userId = request.input('auth_user_id') as String? ?? '';
+    if (userId.isEmpty) {
+      return Response.json({'message': 'Unauthenticated'}, 401);
+    }
+
+    final user = await User().query().where('id', '=', userId).first();
+    if (user == null) {
+      return Response.json({'message': 'User not found'}, 404);
+    }
+    if (user['is_verified'] == 1 || user['is_verified'] == true) {
+      return Response.json({'message': 'User is already verified'}, 409);
+    }
+
+    var wallet = await Wallet().query().where('user_id', '=', userId).first();
+    if (wallet == null) {
+      final now = DateTime.now().toIso8601String();
+      final walletId = const Uuid().v4();
+      await Wallet().query().insert({
+        'id': walletId,
+        'user_id': userId,
+        'balance': 0,
+        'created_at': now,
+        'updated_at': now,
+      });
+      wallet = {'id': walletId, 'user_id': userId, 'balance': 0};
+    }
+
+    final currentBalance = (wallet['balance'] as num?)?.toInt() ?? 0;
+    if (currentBalance < verificationBadgeCost) {
+      return Response.json({
+        'message':
+            'Not enough Bling to purchase verification. You need $verificationBadgeCost Bling.',
+        'required_bling': verificationBadgeCost,
+        'current_balance': currentBalance,
+      }, 400);
+    }
+
+    final now = DateTime.now().toIso8601String();
+    final newBalance = currentBalance - verificationBadgeCost;
+
+    await Wallet().query().where('user_id', '=', userId).update({
+      'balance': newBalance,
+      'updated_at': now,
+    });
+
+    await User().query().where('id', '=', userId).update({
+      'is_verified': 1,
+      'updated_at': now,
+    });
+
+    await connection!.statement(
+      '''
+      INSERT INTO bling_transactions (id, user_id, to_user_id, type, amount, reference, description, created_at, updated_at)
+      VALUES (\$1, \$2, NULL, 'verification_badge', \$3, \$4, \$5, \$6, \$7)
+      ''',
+      [
+        const Uuid().v4(),
+        userId,
+        verificationBadgeCost,
+        'verification_badge_purchase',
+        'Purchased verification badge',
+        now,
+        now,
+      ],
+    );
+
+    return Response.json({
+      'message': 'Verification badge activated',
+      'new_balance': newBalance,
+      'verification_cost': verificationBadgeCost,
+      'is_verified': true,
+    }, 200);
   }
 
   /// PUT /api/user/profile  (authenticated)

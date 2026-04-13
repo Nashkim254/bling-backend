@@ -56,6 +56,8 @@ import 'create_user_avatar_inventory_table.dart';
 import 'create_user_accessory_inventory_table.dart';
 import 'create_user_medal_inventory_table.dart';
 import 'create_feed_interactions_table.dart';
+import 'add_entry_fee_to_challenges.dart';
+import 'add_judging_type_to_challenges.dart';
 import 'add_equipped_customization_to_users.dart';
 import 'add_price_to_admin_level_medals.dart';
 import 'seed_admin_module.dart';
@@ -130,6 +132,8 @@ class Migrate {
     await CreateUserAccessoryInventoryTable().up();
     await CreateUserMedalInventoryTable().up();
     await CreateFeedInteractionsTable().up();
+    await AddEntryFeeToChallenges().up();
+    await AddJudgingTypeToChallenges().up();
     await CreateAdminNotificationCasesTable().up();
     await AddAdminTransactionColumns().up();
     await SeedAdminModule().up();
