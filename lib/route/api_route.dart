@@ -124,6 +124,7 @@ class ApiRoute implements Route {
 
       // Feed & Posts
       Router.get('/feed', postsController.getFeed);
+      Router.get('/reels', postsController.getReels);
       Router.post('/feed/interactions', postsController.recordFeedInteraction);
       Router.get('/posts', postsController.getPosts);
       Router.post('/posts', postsController.createPost);

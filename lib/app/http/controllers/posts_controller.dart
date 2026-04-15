@@ -110,6 +110,46 @@ class PostsController extends Controller {
     }
   }
 
+  /// GET /api/reels?page=&limit=  (authenticated)
+  /// Returns only short-form reel posts for the dedicated reels feed.
+  Future<Response> getReels(Request request) async {
+    final authUserId = request.input('auth_user_id') as String? ?? '';
+    final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
+    final limit =
+        int.tryParse(request.input('limit')?.toString() ?? '10') ?? 10;
+
+    try {
+      final blockedIds = await _loadBlockedUserIds(authUserId);
+      final likedPostIds = await _loadLikedPostIds(authUserId);
+      final total = await _countActiveReels(blockedIds);
+      final rows = await _loadChronologicalReelRows(
+        blockedIds: blockedIds,
+        limit: limit,
+        page: page,
+      );
+      final data = rows.map((post) => _mapFeedRow(post, likedPostIds)).toList();
+
+      final lastPage = total == 0 ? 1 : ((total + limit - 1) ~/ limit);
+      final nextPage = page < lastPage ? page + 1 : null;
+
+      return Response.json({
+        'reels': {
+          'total': total,
+          'per_page': limit,
+          'page': page,
+          'last_page': lastPage,
+          'next_page': nextPage,
+          'data': data,
+        }
+      }, HttpStatus.ok);
+    } catch (e) {
+      return Response.json({
+        'message': 'Error fetching reels',
+        'error': e.toString(),
+      }, HttpStatus.internalServerError);
+    }
+  }
+
   void _logFeedMix({
     required String authUserId,
     required int page,
@@ -247,10 +287,9 @@ class PostsController extends Controller {
   /// POST /api/posts  (authenticated)
   Future<Response> createPost(Request request) async {
     request.validate({
-      'caption': 'required|string',
+      'caption': 'string',
       'post_type': 'required|string',
     }, {
-      'caption.required': 'Caption is required',
       'post_type.required': 'Post type is required',
     });
 
@@ -999,6 +1038,24 @@ class PostsController extends Controller {
     return int.tryParse(rows.first['count']?.toString() ?? '0') ?? 0;
   }
 
+  Future<int> _countActiveReels(List<String> blockedIds) async {
+    final blockedClause = blockedIds.isEmpty
+        ? ''
+        : 'AND p.user_id NOT IN (${blockedIds.map((id) => "'$id'").join(',')})';
+    final rows = await connection!.select(
+      '''
+      SELECT COUNT(*) AS count
+      FROM posts p
+      WHERE p.is_active = 1
+        AND p.post_type = 'reel'
+        AND (COALESCE(p.video_url, '') != '' OR COALESCE(p.media_kind, '') = 'video')
+      $blockedClause
+      ''',
+      [],
+    );
+    return int.tryParse(rows.first['count']?.toString() ?? '0') ?? 0;
+  }
+
   Future<List<Map<String, dynamic>>> _loadChronologicalFeedRows({
     required List<String> blockedIds,
     required int limit,
@@ -1025,6 +1082,41 @@ class PostsController extends Controller {
     return (posts['data'] as List<dynamic>)
         .whereType<Map>()
         .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadChronologicalReelRows({
+    required List<String> blockedIds,
+    required int limit,
+    required int page,
+  }) async {
+    var query = Posts()
+        .query()
+        .select(_feedSelectColumns())
+        .selectRaw(_feedSelectRaw())
+        .leftJoin('users', 'users.id', '=', 'posts.user_id')
+        .leftJoin('comments', 'comments.post_id', '=', 'posts.id')
+        .leftJoin('likes', 'likes.post_id', '=', 'posts.id')
+        .where('posts.is_active', '=', 1)
+        .where('posts.post_type', '=', 'reel');
+
+    for (final id in blockedIds) {
+      query = query.where('posts.user_id', '!=', id);
+    }
+
+    final posts = await query
+        .groupBy(_feedGroupByColumns())
+        .orderBy('posts.created_at', 'DESC')
+        .paginate(limit, page);
+
+    return (posts['data'] as List<dynamic>)
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .where((row) {
+          final videoUrl = row['video_url']?.toString() ?? '';
+          final mediaKind = row['media_kind']?.toString() ?? '';
+          return videoUrl.isNotEmpty || mediaKind == 'video';
+        })
         .toList();
   }
 

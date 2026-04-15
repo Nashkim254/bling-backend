@@ -201,7 +201,7 @@ class ChallengesController extends Controller {
         LEFT JOIN comments c ON c.post_id = p.id
         WHERE ce.challenge_id = \$1
         GROUP BY ce.id, ce.user_id, ce.post_id, ce.is_winner, ce.created_at,
-                 u.name, u.username, u.avatar,
+                 u.name, u.username, u.avatar, u.is_verified,
                  p.user_id, p.caption, p.post_type, p.image_url,
                  p.thumbnail_url, p.video_url, p.media_kind, p.storage_bucket,
                  p.storage_path, p.mime_type, p.media::TEXT, p.is_active, p.created_at
