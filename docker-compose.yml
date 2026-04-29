@@ -13,22 +13,28 @@ services:
     ports:
       - "8000:8000"
     environment:
-      QDRANT_URL: "http://qdrant:6333"
-      QDRANT_POSTS_COLLECTION: "feed_posts"
-      QDRANT_VECTOR_SIZE: "256"
+      DB_CONNECTION: "postgresql"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_DATABASE: "bling"
+      DB_USERNAME: "bling"
+      DB_PASSWORD: "bling"
     depends_on:
-      - qdrant
+      - postgres
 
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: qdrant
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: bling-postgres
     restart: always
+    environment:
+      POSTGRES_DB: "bling"
+      POSTGRES_USER: "bling"
+      POSTGRES_PASSWORD: "bling"
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "5432:5432"
     volumes:
-      - qdrant_storage:/qdrant/storage
+      - postgres_data:/var/lib/postgresql/data
 
 volumes:
   app:
-  qdrant_storage:
+  postgres_data:

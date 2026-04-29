@@ -56,6 +56,7 @@ import 'create_user_avatar_inventory_table.dart';
 import 'create_user_accessory_inventory_table.dart';
 import 'create_user_medal_inventory_table.dart';
 import 'create_feed_interactions_table.dart';
+import 'create_post_embeddings_table.dart';
 import 'add_entry_fee_to_challenges.dart';
 import 'add_judging_type_to_challenges.dart';
 import 'add_equipped_customization_to_users.dart';
@@ -132,6 +133,7 @@ class Migrate {
     await CreateUserAccessoryInventoryTable().up();
     await CreateUserMedalInventoryTable().up();
     await CreateFeedInteractionsTable().up();
+    await CreatePostEmbeddingsTable().up();
     await AddEntryFeeToChallenges().up();
     await AddJudgingTypeToChallenges().up();
     await CreateAdminNotificationCasesTable().up();
@@ -145,6 +147,7 @@ class Migrate {
     await CreateGroupMembersTable().down();
     await CreateGroupsTable().down();
     await CreateUserMedalInventoryTable().down();
+    await CreatePostEmbeddingsTable().down();
     await CreateUserAccessoryInventoryTable().down();
     await CreateUserAvatarInventoryTable().down();
     await AddEquippedCustomizationToUsers().down();

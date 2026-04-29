@@ -1,10 +1,20 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:bling/services/content_embedding_service.dart';
 import 'package:bling/services/feed_interaction_service.dart';
-import 'package:bling/services/qdrant_service.dart';
 import 'package:vania/vania.dart';
+
+class PostRecommendation {
+  const PostRecommendation({
+    required this.postId,
+    required this.userId,
+    required this.score,
+  });
+
+  final String postId;
+  final String userId;
+  final double score;
+}
 
 class FeedRecommendationService {
   FeedRecommendationService._();
@@ -14,17 +24,15 @@ class FeedRecommendationService {
 
   final _embeddingService = ContentEmbeddingService.instance;
   final _interactionService = FeedInteractionService.instance;
-  final _qdrantService = QdrantService.instance;
 
-  bool get isEnabled => _qdrantService.isEnabled;
+  bool get isEnabled => true;
   bool get _logEnabled {
-    final value =
-        (Platform.environment['FEED_RECOMMENDATION_LOGS'] ??
-                env('FEED_RECOMMENDATION_LOGS', '') ??
-                '')
-            .toString()
-            .trim()
-            .toLowerCase();
+    final value = (Platform.environment['FEED_RECOMMENDATION_LOGS'] ??
+            env('FEED_RECOMMENDATION_LOGS', '') ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
     return value == '1' || value == 'true' || value == 'yes' || value == 'on';
   }
 
@@ -42,8 +50,9 @@ class FeedRecommendationService {
         [limit],
       );
 
-      final points = rows.map(_postRowToPoint).toList();
-      await _qdrantService.upsertPosts(points);
+      for (final row in rows) {
+        await _upsertPostEmbedding(row);
+      }
     } catch (error) {
       _logSoftFailure('backfillRecentPosts', error);
     }
@@ -52,16 +61,19 @@ class FeedRecommendationService {
   Future<void> indexPost(Map<String, dynamic> row) async {
     if (!isEnabled) return;
     try {
-      await _qdrantService.upsertPosts([_postRowToPoint(row)]);
+      await _upsertPostEmbedding(row);
     } catch (error) {
       _logSoftFailure('indexPost', error);
     }
   }
 
   Future<void> deletePost(String postId) async {
-    if (!isEnabled || postId.trim().isEmpty) return;
+    if (!isEnabled || postId.trim().isEmpty || !_isUuid(postId)) return;
     try {
-      await _qdrantService.deletePosts([postId.trim()]);
+      await connection!.statement(
+        'DELETE FROM post_embeddings WHERE post_id = \$1::uuid',
+        [postId.trim()],
+      );
     } catch (error) {
       _logSoftFailure('deletePost', error);
     }
@@ -84,8 +96,10 @@ class FeedRecommendationService {
         return const [];
       }
 
-      final candidates = await _qdrantService.recommendByPostIds(
+      final candidates = await _recommendByPostIds(
         positivePostIds: positiveIds,
+        authUserId: authUserId,
+        blockedUserIds: blockedUserIds,
         limit: limit * 4,
       );
 
@@ -160,44 +174,91 @@ class FeedRecommendationService {
         .toList();
   }
 
-  Map<String, dynamic> _postRowToPoint(Map<String, dynamic> row) {
+  Future<void> _upsertPostEmbedding(Map<String, dynamic> row) async {
     final postId = row['id']?.toString() ?? '';
     final userId = row['user_id']?.toString() ?? '';
+    if (!_isUuid(postId) || !_isUuid(userId)) return;
+
     final caption = row['caption']?.toString() ?? '';
     final postType = row['post_type']?.toString() ?? 'feed';
     final mediaKind = row['media_kind']?.toString() ?? 'image';
     final hashtags = _embeddingService.parseHashtags(row['hashtags']);
-    final createdAtText = row['created_at']?.toString() ?? '';
-    final createdAt = DateTime.tryParse(createdAtText);
     final vector = _embeddingService.embedPost(
       caption: caption,
       postType: postType,
       hashtags: hashtags,
       mediaKind: mediaKind,
     );
+    final now = DateTime.now().toIso8601String();
+    final createdAt = row['created_at']?.toString() ?? now;
 
-    return {
-      'id': postId,
-      'vector': vector,
-      'payload': {
-        'post_id': postId,
-        'user_id': userId,
-        'caption': caption,
-        'post_type': postType,
-        'media_kind': mediaKind,
-        'hashtags': hashtags,
-        'is_active': (row['is_active'] as num?)?.toInt() == 1,
-        'created_at': createdAtText,
-        'created_at_ts': createdAt?.millisecondsSinceEpoch ??
-            DateTime.now().millisecondsSinceEpoch,
-        'document': jsonEncode({
-          'caption': caption,
-          'post_type': postType,
-          'media_kind': mediaKind,
-          'hashtags': hashtags,
-        }),
-      },
-    };
+    await connection!.statement(
+      '''
+      INSERT INTO post_embeddings (
+        post_id, user_id, embedding, created_at, updated_at
+      )
+      VALUES (\$1::uuid, \$2::uuid, \$3::vector, \$4, \$5)
+      ON CONFLICT (post_id)
+      DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        embedding = EXCLUDED.embedding,
+        updated_at = EXCLUDED.updated_at
+      ''',
+      [postId, userId, _toVectorLiteral(vector), createdAt, now],
+    );
+  }
+
+  Future<List<PostRecommendation>> _recommendByPostIds({
+    required List<String> positivePostIds,
+    required String authUserId,
+    required List<String> blockedUserIds,
+    required int limit,
+  }) async {
+    final validPositiveIds = positivePostIds.where(_isUuid).toList();
+    if (validPositiveIds.isEmpty || !_isUuid(authUserId) || limit <= 0) {
+      return const [];
+    }
+
+    final positiveClause = _uuidListClause(validPositiveIds);
+    final blockedClause = _uuidListClause(
+        blockedUserIds.map((item) => item.trim()).where(_isUuid));
+
+    final rows = await connection!.select(
+      '''
+      WITH seed_posts AS (
+        SELECT embedding
+        FROM post_embeddings
+        WHERE post_id IN ($positiveClause)
+      ),
+      seed_vector AS (
+        SELECT AVG(embedding) AS embedding
+        FROM seed_posts
+      )
+      SELECT pe.post_id, pe.user_id, 1 - (pe.embedding <=> sv.embedding) AS score
+      FROM post_embeddings pe
+      CROSS JOIN seed_vector sv
+      INNER JOIN posts p ON p.id = pe.post_id
+      WHERE sv.embedding IS NOT NULL
+        AND p.is_active = 1
+        AND pe.user_id <> '$authUserId'::uuid
+        AND pe.post_id NOT IN ($positiveClause)
+        ${blockedClause.isEmpty ? '' : 'AND pe.user_id NOT IN ($blockedClause)'}
+      ORDER BY pe.embedding <=> sv.embedding ASC, p.created_at DESC
+      LIMIT $limit
+      ''',
+      [],
+    );
+
+    return rows
+        .map(
+          (row) => PostRecommendation(
+            postId: row['post_id']?.toString() ?? '',
+            userId: row['user_id']?.toString() ?? '',
+            score: (row['score'] as num?)?.toDouble() ?? 0,
+          ),
+        )
+        .where((item) => item.postId.isNotEmpty)
+        .toList();
   }
 
   void _logSoftFailure(String operation, Object error) {
@@ -207,5 +268,25 @@ class FeedRecommendationService {
   void _log(String message) {
     if (!_logEnabled) return;
     print('[FeedRec] $message');
+  }
+
+  bool _isUuid(String value) {
+    final normalized = value.trim();
+    return RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+    ).hasMatch(normalized);
+  }
+
+  String _toVectorLiteral(List<double> values) {
+    return '[${values.map((value) => value.toStringAsFixed(8)).join(',')}]';
+  }
+
+  String _uuidListClause(Iterable<String> values) {
+    final items = values
+        .map((value) => value.trim())
+        .where(_isUuid)
+        .map((value) => "'$value'::uuid")
+        .toList();
+    return items.join(', ');
   }
 }
