@@ -352,16 +352,37 @@ class AuthController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final body = Map<String, dynamic>.from(request.body);
-    // Remove fields that shouldn't be updated directly
-    body.remove('id');
-    body.remove('password');
-    body.remove('email');
-    body.remove('auth_user_id');
-    if (body.containsKey('social_links')) {
-      body['social_links'] =
-          jsonEncode(_normalizeSocialLinks(body['social_links']));
+    final requestBody = Map<String, dynamic>.from(request.body);
+    final body = <String, dynamic>{};
+
+    if (requestBody.containsKey('name')) {
+      body['name'] = requestBody['name'];
     }
+    if (requestBody.containsKey('username')) {
+      body['username'] = requestBody['username'];
+    }
+    if (requestBody.containsKey('bio')) {
+      body['bio'] = requestBody['bio'];
+    }
+    if (requestBody.containsKey('avatar')) {
+      body['avatar'] = requestBody['avatar'];
+    }
+    if (requestBody.containsKey('cover_image')) {
+      body['cover_image'] = requestBody['cover_image'];
+    }
+    if (requestBody.containsKey('account_type')) {
+      body['account_type'] = requestBody['account_type'];
+    }
+    if (requestBody.containsKey('msisdn')) {
+      body['msisdn'] = requestBody['msisdn'];
+    } else if (requestBody.containsKey('phone')) {
+      body['msisdn'] = requestBody['phone'];
+    }
+    if (requestBody.containsKey('social_links')) {
+      body['social_links'] =
+          jsonEncode(_normalizeSocialLinks(requestBody['social_links']));
+    }
+
     body['updated_at'] = DateTime.now().toIso8601String();
 
     await User().query().where('id', '=', userId).update(body);
