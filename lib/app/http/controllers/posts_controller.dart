@@ -400,8 +400,14 @@ class PostsController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final postId = request.body['post_id']?.toString() ?? '';
-    final interactionType = request.body['interaction_type']?.toString() ?? '';
+    final requestBody = request.body is Map
+        ? Map<String, dynamic>.from(request.body as Map)
+        : const <String, dynamic>{};
+    final postId =
+        request.input('post_id')?.toString() ?? requestBody['post_id']?.toString() ?? '';
+    final interactionType = request.input('interaction_type')?.toString() ??
+        requestBody['interaction_type']?.toString() ??
+        '';
     if (postId.isEmpty || interactionType.trim().isEmpty) {
       return Response.json(
         {'message': 'post_id and interaction_type are required'},
@@ -413,10 +419,19 @@ class PostsController extends Controller {
       userId: authUserId,
       postId: postId,
       interactionType: interactionType,
-      source: request.body['source']?.toString() ?? 'feed',
-      dwellMs: int.tryParse(request.body['dwell_ms']?.toString() ?? '0') ?? 0,
-      metadata: request.body['metadata'] is Map
-          ? Map<String, dynamic>.from(request.body['metadata'] as Map)
+      source: request.input('source')?.toString() ??
+          requestBody['source']?.toString() ??
+          'feed',
+      dwellMs: int.tryParse(
+            request.input('dwell_ms')?.toString() ??
+                requestBody['dwell_ms']?.toString() ??
+                '0',
+          ) ??
+          0,
+      metadata: request.input('metadata') is Map
+          ? Map<String, dynamic>.from(request.input('metadata') as Map)
+          : requestBody['metadata'] is Map
+              ? Map<String, dynamic>.from(requestBody['metadata'] as Map)
           : null,
     );
 
