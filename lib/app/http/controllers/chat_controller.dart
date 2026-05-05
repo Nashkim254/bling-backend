@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/block_model.dart';
 import 'package:bling/services/fcm_service.dart';
 import 'package:uuid/uuid.dart';
@@ -114,11 +115,13 @@ class ChatController extends Controller {
     final me = _authUserId(request);
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
-    final body = request.body;
-    final type = body['type']?.toString() ?? 'dm';
-    final rawMembers = body['member_ids'];
-    final List<String> memberIds =
-        rawMembers is List ? rawMembers.map((e) => e.toString()).toList() : [];
+    final data = RequestData(request);
+    final type = data.trimmed('type', fallback: 'dm');
+    final memberIds = data
+        .list('member_ids')
+        .map((e) => e.toString())
+        .where((e) => e.isNotEmpty)
+        .toList();
 
     if (memberIds.isEmpty) {
       return Response.json({'message': 'member_ids required'}, 422);
@@ -168,7 +171,9 @@ class ChatController extends Controller {
         }
       }
 
-      if (type == 'group' && body['name'] == null) {
+      final groupName = data.trimmed('name');
+      final avatar = data.trimmed('avatar');
+      if (type == 'group' && groupName.isEmpty) {
         return Response.json({'message': 'Group name required'}, 422);
       }
 
@@ -176,7 +181,7 @@ class ChatController extends Controller {
 
       await connection!.statement(
         'INSERT INTO conversations (id, type, name, avatar, created_by, created_at, updated_at) VALUES (\$1,\$2,\$3,\$4,\$5,\$6,\$7)',
-        [convId, type, body['name'], body['avatar'], me, now, now],
+        [convId, type, groupName.isEmpty ? null : groupName, avatar, me, now, now],
       );
 
       for (final userId in allMembers) {
@@ -377,13 +382,13 @@ class ChatController extends Controller {
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
-    final body = request.body;
-    final content = body['content']?.toString() ?? '';
-    final messageType = body['message_type']?.toString() ?? 'text';
-    final fileUrl = body['file_url']?.toString();
-    final fileName = body['file_name']?.toString();
-    final fileSize = int.tryParse(body['file_size']?.toString() ?? '0') ?? 0;
-    final replyToId = body['reply_to_id']?.toString();
+    final data = RequestData(request);
+    final content = data.trimmed('content');
+    final messageType = data.trimmed('message_type', fallback: 'text');
+    final fileUrl = data.trimmed('file_url').isEmpty ? null : data.trimmed('file_url');
+    final fileName = data.trimmed('file_name').isEmpty ? null : data.trimmed('file_name');
+    final fileSize = data.intValue('file_size') ?? 0;
+    final replyToId = data.trimmed('reply_to_id').isEmpty ? null : data.trimmed('reply_to_id');
 
     if (content.isEmpty && fileUrl == null) {
       return Response.json({'message': 'Content or file required'}, 422);
@@ -463,7 +468,7 @@ class ChatController extends Controller {
     final msgId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
-    final newContent = request.body['content']?.toString() ?? '';
+    final newContent = RequestData(request).trimmed('content');
     if (newContent.isEmpty)
       return Response.json({'message': 'Content required'}, 422);
 
@@ -501,7 +506,7 @@ class ChatController extends Controller {
     final msgId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
-    final emoji = request.body['emoji']?.toString() ?? '';
+    final emoji = RequestData(request).trimmed('emoji');
     if (emoji.isEmpty) return Response.json({'message': 'Emoji required'}, 422);
 
     // Get user name
@@ -567,10 +572,11 @@ class ChatController extends Controller {
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
     try {
-      final base64Data = request.body['data']?.toString() ?? '';
-      final originalName = request.body['file_name']?.toString() ?? 'file';
-      final contentType = request.body['content_type']?.toString() ??
-          'application/octet-stream';
+      final data = RequestData(request);
+      final base64Data = data.trimmed('data');
+      final originalName = data.trimmed('file_name', fallback: 'file');
+      final contentType =
+          data.trimmed('content_type', fallback: 'application/octet-stream');
 
       if (base64Data.isEmpty)
         return Response.json({'message': 'No file data'}, 422);

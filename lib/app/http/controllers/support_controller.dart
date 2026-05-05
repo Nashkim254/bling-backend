@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
@@ -17,11 +18,10 @@ class SupportController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final body = request.body;
-    final issueType = body['issue_type']?.toString().trim() ?? '';
-    final feedback = body['feedback']?.toString().trim() ?? '';
-    final transactionReference =
-        body['transaction_reference']?.toString().trim() ?? '';
+    final data = RequestData(request);
+    final issueType = data.trimmed('issue_type');
+    final feedback = data.trimmed('feedback');
+    final transactionReference = data.trimmed('transaction_reference');
 
     if (!['app_malfunction', 'bling_transaction'].contains(issueType)) {
       return Response.json({'message': 'Invalid support type'}, 422);

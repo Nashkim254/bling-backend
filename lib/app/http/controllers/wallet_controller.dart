@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/bling_package.dart';
 import 'package:bling/app/models/bling_transaction.dart';
 import 'package:bling/app/models/notification_model.dart';
@@ -133,20 +134,17 @@ class WalletController extends Controller {
   /// POST /api/bling/purchase  (authenticated)
   /// Body: { package_id, payment_reference }
   Future<Response> purchaseBling(Request request) async {
-    request.validate({
-      'package_id': 'required|string',
-    }, {
-      'package_id.required': 'Package ID is required',
-    });
-
     final authUserId = request.input('auth_user_id') as String? ?? '';
     if (authUserId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final body = request.body;
-    final packageId = body['package_id'] as String;
-    final paymentRef = body['payment_reference'] as String? ?? '';
+    final data = RequestData(request);
+    final packageId = data.trimmed('package_id');
+    if (packageId.isEmpty) {
+      return Response.json({'package_id': 'Package ID is required'}, 422);
+    }
+    final paymentRef = data.trimmed('payment_reference');
 
     final package =
         await BlingPackage().query().where('id', '=', packageId).first();
@@ -227,26 +225,24 @@ class WalletController extends Controller {
   /// - creator support is consumed as platform spend
   /// - creators receive visibility credit, not wallet balance
   Future<Response> transferBling(Request request) async {
-    request.validate({
-      'to_user_id': 'required|string',
-      'amount': 'required',
-    }, {
-      'to_user_id.required': 'Recipient is required',
-      'amount.required': 'Amount is required',
-    });
-
     final authUserId = request.input('auth_user_id')?.toString() ?? '';
     if (authUserId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final body = request.body;
-    final toUserId = body['to_user_id'] as String;
-    final amount = int.tryParse(body['amount']?.toString() ?? '0') ?? 0;
-    final message = body['message'] as String? ?? '';
-    final context = _normalizeTransferContext(
-      body['context']?.toString() ?? 'direct',
-    );
+    final data = RequestData(request);
+    final errors = data.require({
+      'to_user_id': 'Recipient is required',
+      'amount': 'Amount is required',
+    });
+    if (errors.isNotEmpty) {
+      return Response.json(errors, 422);
+    }
+
+    final toUserId = data.trimmed('to_user_id');
+    final amount = data.intValue('amount') ?? 0;
+    final message = data.trimmed('message');
+    final context = _normalizeTransferContext(data.trimmed('context', fallback: 'direct'));
 
     if (toUserId == authUserId) {
       return Response.json({'message': 'Cannot transfer to yourself'}, 400);

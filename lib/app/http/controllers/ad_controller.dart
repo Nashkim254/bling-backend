@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/wallet.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
@@ -170,26 +171,23 @@ class AdController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final body = request.body;
-    final title = body['title']?.toString() ?? '';
-    final adBody = body['body']?.toString() ?? '';
-    final imageUrl = body['image_url']?.toString() ?? '';
-    final thumbnailUrl = body['thumbnail_url']?.toString() ?? '';
-    final videoUrl = body['video_url']?.toString() ?? '';
-    final mediaKind = body['media_kind']?.toString() ?? 'image';
-    final storageBucket = body['storage_bucket']?.toString() ?? '';
-    final storagePath = body['storage_path']?.toString() ?? '';
-    final mimeType = body['mime_type']?.toString() ?? '';
-    final targetUrl = body['target_url']?.toString() ?? '';
-    final budgetBling =
-        int.tryParse(body['budget_bling']?.toString() ?? '0') ?? 0;
-    final cpmBling = int.tryParse(body['cpm_bling']?.toString() ?? '50') ?? 50;
-    final targetMinLevel =
-        int.tryParse(body['target_min_level']?.toString() ?? '');
-    final targetVerifiedOnly = body['target_verified_only'] == true ||
-        body['target_verified_only'] == 'true';
-    final startAt = body['start_at']?.toString();
-    final endAt = body['end_at']?.toString();
+    final data = RequestData(request);
+    final title = data.trimmed('title');
+    final adBody = data.trimmed('body');
+    final imageUrl = data.trimmed('image_url');
+    final thumbnailUrl = data.trimmed('thumbnail_url');
+    final videoUrl = data.trimmed('video_url');
+    final mediaKind = data.trimmed('media_kind', fallback: 'image');
+    final storageBucket = data.trimmed('storage_bucket');
+    final storagePath = data.trimmed('storage_path');
+    final mimeType = data.trimmed('mime_type');
+    final targetUrl = data.trimmed('target_url');
+    final budgetBling = data.intValue('budget_bling') ?? 0;
+    final cpmBling = data.intValue('cpm_bling') ?? 50;
+    final targetMinLevel = data.intValue('target_min_level');
+    final targetVerifiedOnly = data.boolValue('target_verified_only');
+    final startAt = data.trimmed('start_at').isEmpty ? null : data.trimmed('start_at');
+    final endAt = data.trimmed('end_at').isEmpty ? null : data.trimmed('end_at');
 
     if (title.isEmpty || adBody.isEmpty) {
       return Response.json({'message': 'Title and body are required'}, 422);
@@ -344,7 +342,7 @@ class AdController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final body = request.body;
+    final data = RequestData(request);
 
     final rows = await connection!.select(
       '''
@@ -361,9 +359,9 @@ class AdController extends Controller {
     }
 
     final current = rows.first;
-    final statusOnly = body.keys.length == 1 && body.containsKey('status');
+    final statusOnly = data.body.keys.length == 1 && data.body.containsKey('status');
     if (statusOnly) {
-      final status = body['status']?.toString() ?? '';
+      final status = data.trimmed('status');
       if (!['active', 'paused'].contains(status)) {
         return Response.json(
             {'message': 'status must be active or paused'}, 422);
@@ -376,17 +374,15 @@ class AdController extends Controller {
           {'message': 'Campaign updated', 'status': status}, 200);
     }
 
-    final title = body['title']?.toString() ?? '';
-    final adBody = body['body']?.toString() ?? '';
-    final budgetBling =
-        int.tryParse(body['budget_bling']?.toString() ?? '0') ?? 0;
-    final cpmBling = int.tryParse(body['cpm_bling']?.toString() ?? '50') ?? 50;
-    final targetMinLevel =
-        int.tryParse(body['target_min_level']?.toString() ?? '');
-    final targetVerifiedOnly = body['target_verified_only'] == true ||
-        body['target_verified_only'] == 'true';
-    final status =
-        body['status']?.toString() ?? current['status']?.toString() ?? 'active';
+    final title = data.trimmed('title');
+    final adBody = data.trimmed('body');
+    final budgetBling = data.intValue('budget_bling') ?? 0;
+    final cpmBling = data.intValue('cpm_bling') ?? 50;
+    final targetMinLevel = data.intValue('target_min_level');
+    final targetVerifiedOnly = data.boolValue('target_verified_only');
+    final status = data.trimmed('status').isEmpty
+        ? current['status']?.toString() ?? 'active'
+        : data.trimmed('status');
 
     if (title.isEmpty || adBody.isEmpty) {
       return Response.json({'message': 'Title and body are required'}, 422);
@@ -458,20 +454,20 @@ class AdController extends Controller {
       [
         title,
         adBody,
-        body['image_url']?.toString() ?? '',
-        body['target_url']?.toString() ?? '',
-        body['thumbnail_url']?.toString() ?? '',
-        body['video_url']?.toString() ?? '',
-        body['media_kind']?.toString() ?? 'image',
-        body['storage_bucket']?.toString() ?? '',
-        body['storage_path']?.toString() ?? '',
-        body['mime_type']?.toString() ?? '',
+        data.trimmed('image_url'),
+        data.trimmed('target_url'),
+        data.trimmed('thumbnail_url'),
+        data.trimmed('video_url'),
+        data.trimmed('media_kind', fallback: 'image'),
+        data.trimmed('storage_bucket'),
+        data.trimmed('storage_path'),
+        data.trimmed('mime_type'),
         budgetBling,
         cpmBling,
         targetMinLevel,
         targetVerifiedOnly,
-        body['start_at']?.toString(),
-        body['end_at']?.toString(),
+        data.trimmed('start_at').isEmpty ? null : data.trimmed('start_at'),
+        data.trimmed('end_at').isEmpty ? null : data.trimmed('end_at'),
         budgetBling <= spentBling ? 'exhausted' : status,
         now,
         adId,

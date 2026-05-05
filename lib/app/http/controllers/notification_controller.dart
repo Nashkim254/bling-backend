@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/notification_model.dart';
 import 'package:vania/vania.dart';
 
@@ -45,10 +46,10 @@ class NotificationController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final ids = request.body['ids'] as List<dynamic>?;
+    final ids = RequestData(request).list('ids');
     final now = DateTime.now().toIso8601String();
 
-    if (ids != null && ids.isNotEmpty) {
+    if (ids.isNotEmpty) {
       for (final id in ids) {
         await NotificationModel()
             .query()

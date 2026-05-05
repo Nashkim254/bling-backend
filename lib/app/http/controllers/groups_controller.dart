@@ -1,3 +1,4 @@
+import 'package:bling/app/http/request_data.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
@@ -352,21 +353,21 @@ class GroupsController extends Controller {
     final me = _authUserId(request);
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 
-    request.validate({
-      'name': 'required|string',
-      'description': 'required|string',
-    }, {
-      'name.required': 'Group name is required',
-      'description.required': 'Group description is required',
+    final data = RequestData(request);
+    final errors = data.require({
+      'name': 'Group name is required',
+      'description': 'Group description is required',
     });
+    if (errors.isNotEmpty) {
+      return Response.json(errors, 422);
+    }
 
-    final body = request.body;
     final groupId = const Uuid().v4();
     final conversationId = const Uuid().v4();
     final now = DateTime.now().toIso8601String();
     final visibility =
-        body['visibility']?.toString() == 'private' ? 'private' : 'public';
-    final rawMemberIds = (body['member_ids'] as List? ?? [])
+        data.trimmed('visibility') == 'private' ? 'private' : 'public';
+    final rawMemberIds = data.list('member_ids')
         .map((item) => item?.toString() ?? '')
         .where((item) => item.isNotEmpty && item != me)
         .toSet()
@@ -378,7 +379,7 @@ class GroupsController extends Controller {
         INSERT INTO conversations (id, type, name, avatar, created_by, created_at, updated_at)
         VALUES (\$1, 'group', \$2, \$3, \$4, \$5, \$5)
         ''',
-        [conversationId, body['name'], body['avatar'], me, now],
+        [conversationId, data.trimmed('name'), data.trimmed('avatar'), me, now],
       );
 
       await connection!.statement(
@@ -401,16 +402,16 @@ class GroupsController extends Controller {
         ''',
         [
           groupId,
-          body['name'],
-          body['description'],
-          body['avatar'],
-          body['cover_image'],
-          _toInt(body['required_level']),
+          data.trimmed('name'),
+          data.trimmed('description'),
+          data.trimmed('avatar'),
+          data.trimmed('cover_image'),
+          _toInt(data.value('required_level')),
           visibility,
           me,
           conversationId,
-          body['discoverable_country']?.toString(),
-          body['discoverable_area']?.toString(),
+          data.trimmed('discoverable_country'),
+          data.trimmed('discoverable_area'),
           now,
         ],
       );
@@ -631,20 +632,19 @@ class GroupsController extends Controller {
   }
 
   Future<Response> createAdminGroup(Request request) async {
-    request.validate({
-      'name': 'required|string',
-      'description': 'required|string',
-    }, {
-      'name.required': 'Group name is required',
-      'description.required': 'Description is required',
-    });
-
     final adminId = request.input('auth_admin_id')?.toString() ?? '';
     if (adminId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final body = request.body;
+    final data = RequestData(request);
+    final errors = data.require({
+      'name': 'Group name is required',
+      'description': 'Description is required',
+    });
+    if (errors.isNotEmpty) {
+      return Response.json(errors, 422);
+    }
     final groupId = const Uuid().v4();
     final conversationId = const Uuid().v4();
     final now = DateTime.now().toIso8601String();
@@ -655,7 +655,7 @@ class GroupsController extends Controller {
         INSERT INTO conversations (id, type, name, avatar, created_by, created_at, updated_at)
         VALUES (\$1, 'group', \$2, \$3, \$4, \$5, \$5)
         ''',
-        [conversationId, body['name'], body['avatar'], adminId, now],
+        [conversationId, data.trimmed('name'), data.trimmed('avatar'), adminId, now],
       );
 
       await connection!.statement(
@@ -677,13 +677,13 @@ class GroupsController extends Controller {
         ''',
         [
           groupId,
-          body['name'],
-          body['description'],
-          body['avatar'],
-          body['cover_image'],
-          _toInt(body['required_level']),
-          _toInt(body['medals_count']),
-          body['visibility']?.toString() ?? 'public',
+          data.trimmed('name'),
+          data.trimmed('description'),
+          data.trimmed('avatar'),
+          data.trimmed('cover_image'),
+          _toInt(data.value('required_level')),
+          _toInt(data.value('medals_count')),
+          data.trimmed('visibility', fallback: 'public'),
           adminId,
           conversationId,
           now,
@@ -715,7 +715,7 @@ class GroupsController extends Controller {
       return Response.json({'message': 'Group not found'}, 404);
     }
 
-    final body = request.body;
+    final data = RequestData(request);
 
     try {
       final rows = await connection!.select(
@@ -742,18 +742,20 @@ class GroupsController extends Controller {
         ''',
         [
           groupId,
-          body['name'],
-          body['description'],
-          body['avatar'],
-          body['cover_image'],
-          body['required_level'] == null
+          data.value('name'),
+          data.value('description'),
+          data.value('avatar'),
+          data.value('cover_image'),
+          data.value('required_level') == null
               ? null
-              : _toInt(body['required_level']),
-          body['medals_count'] == null ? null : _toInt(body['medals_count']),
-          body['visibility'],
-          body['is_active'] == null
+              : _toInt(data.value('required_level')),
+          data.value('medals_count') == null
               ? null
-              : (body['is_active'] == true || body['is_active'] == 1 ? 1 : 0),
+              : _toInt(data.value('medals_count')),
+          data.value('visibility'),
+          data.value('is_active') == null
+              ? null
+              : (data.boolValue('is_active') ? 1 : 0),
         ],
       );
 

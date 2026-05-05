@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/notification_model.dart';
 import 'package:bling/app/models/posts.dart';
 import 'package:bling/app/models/reposts_model.dart';
@@ -17,9 +18,10 @@ class RepostsController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
+    final data = RequestData(request);
     final postId = request.params()['id']?.toString().isNotEmpty == true
         ? request.params()['id'].toString()
-        : request.body['post_id']?.toString() ?? '';
+        : data.trimmed('post_id');
     if (postId.isEmpty) {
       return Response.json({'message': 'Post id is required'}, 422);
     }

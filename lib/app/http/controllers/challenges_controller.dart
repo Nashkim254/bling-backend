@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/challenge_entry.dart';
 import 'package:bling/app/models/challenges_model.dart';
 import 'package:bling/app/models/notification_model.dart';
@@ -325,40 +326,39 @@ class ChallengesController extends Controller {
 
   /// POST /api/challenges  (authenticated)
   Future<Response> createChallenge(Request request) async {
-    request.validate({
-      'title': 'required|string',
-      'description': 'required|string',
-    }, {
-      'title.required': 'Title is required',
-      'description.required': 'Description is required',
-    });
-
     final authUserId = _authUserId(request);
     if (authUserId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
+    final data = RequestData(request);
+    final errors = data.require({
+      'title': 'Title is required',
+      'description': 'Description is required',
+    });
+    if (errors.isNotEmpty) {
+      return Response.json(errors, 422);
+    }
+
     final challengeId = const Uuid().v4();
     final now = DateTime.now().toIso8601String();
-    final prizeBling =
-        int.tryParse(request.body['prize_bling']?.toString() ?? '0') ?? 0;
-    final entryFeeBling =
-        int.tryParse(request.body['entry_fee_bling']?.toString() ?? '0') ?? 0;
-    final endsAt = _resolveEndsAt(request.body['ends_at']?.toString());
+    final prizeBling = data.intValue('prize_bling') ?? 0;
+    final entryFeeBling = data.intValue('entry_fee_bling') ?? 0;
+    final endsAt = _resolveEndsAt(data.trimmed('ends_at'));
     int deductedPrizeAmount = 0;
     int previousBalance = 0;
 
     try {
-      final media = _normalizeMediaInput(request.body['media']);
+      final media = _normalizeMediaInput(data.value('media'));
       final legacyMedia = _legacyFieldsFromMedia(
         media,
-        fallbackImageUrl: request.body['image_url']?.toString() ?? '',
-        fallbackThumbnailUrl: request.body['thumbnail_url']?.toString() ?? '',
-        fallbackVideoUrl: request.body['video_url']?.toString() ?? '',
-        fallbackMediaKind: request.body['media_kind']?.toString() ?? 'image',
-        fallbackBucket: request.body['storage_bucket']?.toString() ?? '',
-        fallbackPath: request.body['storage_path']?.toString() ?? '',
-        fallbackMimeType: request.body['mime_type']?.toString() ?? '',
+        fallbackImageUrl: data.trimmed('image_url'),
+        fallbackThumbnailUrl: data.trimmed('thumbnail_url'),
+        fallbackVideoUrl: data.trimmed('video_url'),
+        fallbackMediaKind: data.trimmed('media_kind', fallback: 'image'),
+        fallbackBucket: data.trimmed('storage_bucket'),
+        fallbackPath: data.trimmed('storage_path'),
+        fallbackMimeType: data.trimmed('mime_type'),
       );
 
       if (prizeBling > 0) {
@@ -393,9 +393,9 @@ class ChallengesController extends Controller {
       final body = <String, dynamic>{
         'id': challengeId,
         'user_id': authUserId,
-        'title': request.body['title']?.toString().trim() ?? '',
-        'description': request.body['description']?.toString().trim() ?? '',
-        'hashtags': _normalizeChallengeHashtags(request.body['hashtags']),
+        'title': data.trimmed('title'),
+        'description': data.trimmed('description'),
+        'hashtags': _normalizeChallengeHashtags(data.value('hashtags')),
         'media': jsonEncode(media),
         'image_url': legacyMedia['image_url'],
         'thumbnail_url': legacyMedia['thumbnail_url'],
@@ -481,8 +481,8 @@ class ChallengesController extends Controller {
 
     final now = DateTime.now().toIso8601String();
     final entryId = const Uuid().v4();
-    final postId = request.body['post_id']?.toString();
-    if (postId == null || postId.trim().isEmpty) {
+    final postId = RequestData(request).trimmed('post_id');
+    if (postId.isEmpty) {
       return Response.json({'message': 'Challenge entry post is required'}, 422);
     }
 
@@ -593,7 +593,7 @@ class ChallengesController extends Controller {
   Future<Response> awardWinner(Request request, [dynamic _]) async {
     final challengeId = request.params()['id'] as String? ?? '';
     final authUserId = _authUserId(request);
-    final entryId = request.body['entry_id']?.toString() ?? '';
+    final entryId = RequestData(request).trimmed('entry_id');
 
     if (authUserId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);

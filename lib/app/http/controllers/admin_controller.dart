@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/wallet.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
@@ -155,18 +156,16 @@ class AdminController extends Controller {
   }
 
   Future<Response> createRole(Request request) async {
-    request.validate({
-      'name': 'required|string',
-      'description': 'required|string',
-    }, {
-      'name.required': 'Role name is required',
-      'description.required': 'Description is required',
+    final data = RequestData(request);
+    final errors = data.require({
+      'name': 'Role name is required',
+      'description': 'Description is required',
     });
+    if (errors.isNotEmpty) {
+      return Response.json(errors, 422);
+    }
 
-    final body = request.body;
-    final permissions = body['permissions'] is List
-        ? (body['permissions'] as List).map((item) => item.toString()).toList()
-        : <String>[];
+    final permissions = data.list('permissions').map((item) => '$item').toList();
     final roleId = const Uuid().v4();
     final adminId = request.input('auth_admin_id')?.toString() ?? '';
 
@@ -177,8 +176,8 @@ class AdminController extends Controller {
       ''',
       [
         roleId,
-        body['name'],
-        body['description'],
+        data.trimmed('name'),
+        data.trimmed('description'),
         jsonEncode(permissions),
         adminId.isEmpty ? null : adminId,
       ],
@@ -247,16 +246,16 @@ class AdminController extends Controller {
   }
 
   Future<Response> createSystemUser(Request request) async {
-    request.validate({
-      'name': 'required|string',
-      'email': 'required|email',
-    }, {
-      'name.required': 'User name is required',
-      'email.required': 'Email is required',
+    final data = RequestData(request);
+    final errors = data.require({
+      'name': 'User name is required',
+      'email': 'Email is required',
     });
+    if (errors.isNotEmpty) {
+      return Response.json(errors, 422);
+    }
 
-    final body = request.body;
-    final email = body['email']?.toString() ?? '';
+    final email = data.lower('email');
     final existing = await connection!.select(
       'SELECT id FROM users WHERE email = \$1 LIMIT 1',
       [email],
@@ -266,7 +265,7 @@ class AdminController extends Controller {
     }
 
     final userId = const Uuid().v4();
-    final username = _slugify(body['name']?.toString() ?? 'admin') +
+    final username = _slugify(data.trimmed('name', fallback: 'admin')) +
         userId.substring(0, 4).toLowerCase();
     final tempPassword = 'Admin@12345';
 
@@ -283,17 +282,15 @@ class AdminController extends Controller {
       ''',
       [
         userId,
-        body['name'],
+        data.trimmed('name'),
         username,
         email,
-        body['phone']?.toString() ?? '',
+        data.trimmed('phone'),
         Hash().make(tempPassword),
       ],
     );
 
-    final roleNames = body['roles'] is List
-        ? (body['roles'] as List).map((item) => item.toString()).toList()
-        : <String>[];
+    final roleNames = data.list('roles').map((item) => '$item').toList();
     for (final roleName in roleNames) {
       final roleRows = await connection!.select(
         'SELECT id FROM admin_roles WHERE LOWER(name) = LOWER(\$1) LIMIT 1',
@@ -376,7 +373,7 @@ class AdminController extends Controller {
   }
 
   Future<Response> createAvatar(Request request) async {
-    final body = request.body;
+    final data = RequestData(request);
     final avatarId = const Uuid().v4();
     await connection!.statement(
       '''
@@ -390,11 +387,12 @@ class AdminController extends Controller {
       ''',
       [
         avatarId,
-        body['name']?.toString() ?? 'Avatar',
-        body['image_url']?.toString() ?? '',
-        _toInt(body['price_bling']),
-        body['is_paid'] == true ? 1 : 0,
-        body['eligible_blingers']?.toString() ?? 'All / above level 2 etc',
+        data.trimmed('name', fallback: 'Avatar'),
+        data.trimmed('image_url'),
+        _toInt(data.value('price_bling')),
+        data.boolValue('is_paid') ? 1 : 0,
+        data.trimmed('eligible_blingers',
+            fallback: 'All / above level 2 etc'),
         (() {
           final adminId = request.input('auth_admin_id')?.toString() ?? '';
           return adminId.isEmpty ? null : adminId;
@@ -493,7 +491,7 @@ class AdminController extends Controller {
 
   Future<Response> createAccessory(Request request, [dynamic _]) async {
     final avatarId = request.params()['id']?.toString() ?? '';
-    final body = request.body;
+    final data = RequestData(request);
     final accessoryId = const Uuid().v4();
     await connection!.statement(
       '''
@@ -508,37 +506,38 @@ class AdminController extends Controller {
       [
         accessoryId,
         avatarId,
-        _normalizeAccessoryCategory(body['category']),
+        _normalizeAccessoryCategory(data.value('category')),
         _normalizeAccessorySlot(
-          body['slot'],
-          fallbackCategory: body['category'],
+          data.value('slot'),
+          fallbackCategory: data.value('category'),
         ),
         _normalizeAccessoryLayerOrder(
-          body['layer_order'],
-          slot: body['slot'],
-          category: body['category'],
+          data.value('layer_order'),
+          slot: data.value('slot'),
+          category: data.value('category'),
         ),
         _normalizeAccessoryScale(
-          body['scale'],
-          slot: body['slot'],
-          category: body['category'],
+          data.value('scale'),
+          slot: data.value('slot'),
+          category: data.value('category'),
         ),
         _normalizeAccessoryOffsetX(
-          body['offset_x'],
-          slot: body['slot'],
-          category: body['category'],
+          data.value('offset_x'),
+          slot: data.value('slot'),
+          category: data.value('category'),
         ),
         _normalizeAccessoryOffsetY(
-          body['offset_y'],
-          slot: body['slot'],
-          category: body['category'],
+          data.value('offset_y'),
+          slot: data.value('slot'),
+          category: data.value('category'),
         ),
-        _toDouble(body['rotation']),
-        body['name']?.toString() ?? 'Accessory',
-        body['image_url']?.toString() ?? '',
-        _toInt(body['price_bling']),
-        body['is_paid'] == true ? 1 : 0,
-        body['eligible_blingers']?.toString() ?? 'All / above level 2 etc',
+        _toDouble(data.value('rotation')),
+        data.trimmed('name', fallback: 'Accessory'),
+        data.trimmed('image_url'),
+        _toInt(data.value('price_bling')),
+        data.boolValue('is_paid') ? 1 : 0,
+        data.trimmed('eligible_blingers',
+            fallback: 'All / above level 2 etc'),
         (() {
           final adminId = request.input('auth_admin_id')?.toString() ?? '';
           return adminId.isEmpty ? null : adminId;
@@ -552,7 +551,7 @@ class AdminController extends Controller {
 
   Future<Response> updateAccessory(Request request, [dynamic _]) async {
     final accessoryId = request.params()['id']?.toString() ?? '';
-    final body = request.body;
+    final data = RequestData(request);
     if (accessoryId.isEmpty) {
       return Response.json({'message': 'Accessory not found'}, 404);
     }
@@ -572,9 +571,9 @@ class AdminController extends Controller {
 
     final existing = existingRows.first;
     final category =
-        _normalizeAccessoryCategory(body['category'] ?? existing['category']);
+        _normalizeAccessoryCategory(data.value('category') ?? existing['category']);
     final slot = _normalizeAccessorySlot(
-      body['slot'] ?? existing['slot'],
+      data.value('slot') ?? existing['slot'],
       fallbackCategory: category,
     );
 
@@ -602,32 +601,32 @@ class AdminController extends Controller {
         category,
         slot,
         _normalizeAccessoryLayerOrder(
-          body['layer_order'],
+          data.value('layer_order'),
           slot: slot,
           category: category,
         ),
         _normalizeAccessoryScale(
-          body['scale'],
+          data.value('scale'),
           slot: slot,
           category: category,
         ),
         _normalizeAccessoryOffsetX(
-          body['offset_x'],
+          data.value('offset_x'),
           slot: slot,
           category: category,
         ),
         _normalizeAccessoryOffsetY(
-          body['offset_y'],
+          data.value('offset_y'),
           slot: slot,
           category: category,
         ),
-        _toDouble(body['rotation']),
-        _cleanString(body['name'], fallback: 'Accessory'),
-        _cleanString(body['image_url']),
-        _toInt(body['price_bling']),
-        body['is_paid'] == true ? 1 : 0,
+        _toDouble(data.value('rotation')),
+        data.trimmed('name', fallback: 'Accessory'),
+        data.trimmed('image_url'),
+        _toInt(data.value('price_bling')),
+        data.boolValue('is_paid') ? 1 : 0,
         _cleanString(
-          body['eligible_blingers'],
+          data.value('eligible_blingers'),
           fallback: 'All / above level 2 etc',
         ),
       ],
@@ -666,21 +665,19 @@ class AdminController extends Controller {
   }
 
   Future<Response> createLeaderboard(Request request) async {
-    request.validate({
-      'name': 'required|string',
-      'metric': 'required|string',
-      'users_limit': 'required',
-    }, {
-      'name.required': 'Leaderboard name is required',
-      'metric.required': 'Metric is required',
-      'users_limit.required': 'Users limit is required',
+    final data = RequestData(request);
+    final errors = data.require({
+      'name': 'Leaderboard name is required',
+      'metric': 'Metric is required',
+      'users_limit': 'Users limit is required',
     });
+    if (errors.isNotEmpty) {
+      return Response.json(errors, 422);
+    }
 
-    final body = request.body;
     final leaderboardId = const Uuid().v4();
     final adminId = request.input('auth_admin_id')?.toString() ?? '';
-    final metric =
-        _normalizeLeaderboardMetric(body['metric']?.toString() ?? '');
+    final metric = _normalizeLeaderboardMetric(data.trimmed('metric'));
 
     await connection!.statement(
       '''
@@ -691,9 +688,11 @@ class AdminController extends Controller {
       ''',
       [
         leaderboardId,
-        body['name']?.toString() ?? 'Leaderboard',
+        data.trimmed('name', fallback: 'Leaderboard'),
         metric,
-        _toInt(body['users_limit']) <= 0 ? 20 : _toInt(body['users_limit']),
+        _toInt(data.value('users_limit')) <= 0
+            ? 20
+            : _toInt(data.value('users_limit')),
         adminId.isEmpty ? null : adminId,
       ],
     );
@@ -739,7 +738,7 @@ class AdminController extends Controller {
   }
 
   Future<Response> createLevel(Request request) async {
-    final body = request.body;
+    final data = RequestData(request);
     final levelId = const Uuid().v4();
     final adminId = request.input('auth_admin_id')?.toString() ?? '';
     final levelRows = await connection!.select(
@@ -747,13 +746,11 @@ class AdminController extends Controller {
       [],
     );
     final nextLevelNumber = _toInt(levelRows.first['max_level']) + 1;
-    final medals = body['medals'] is List
-        ? (body['medals'] as List)
-            .whereType<Map>()
-            .map((item) =>
-                item.map((key, value) => MapEntry(key.toString(), value)))
-            .toList()
-        : <Map<String, dynamic>>[];
+    final medals = data
+        .list('medals')
+        .whereType<Map>()
+        .map((item) => item.map((key, value) => MapEntry('$key', value)))
+        .toList();
 
     await connection!.statement(
       '''
@@ -765,8 +762,8 @@ class AdminController extends Controller {
       [
         levelId,
         nextLevelNumber,
-        body['name']?.toString() ?? 'Level $nextLevelNumber',
-        _toInt(body['required_bling']),
+        data.trimmed('name', fallback: 'Level $nextLevelNumber'),
+        _toInt(data.value('required_bling')),
         adminId.isEmpty ? null : adminId,
       ],
     );
@@ -777,15 +774,13 @@ class AdminController extends Controller {
 
   Future<Response> updateLevel(Request request, [dynamic _]) async {
     final levelId = request.params()['id']?.toString() ?? '';
-    final body = request.body;
+    final data = RequestData(request);
     final adminId = request.input('auth_admin_id')?.toString() ?? '';
-    final medals = body['medals'] is List
-        ? (body['medals'] as List)
-            .whereType<Map>()
-            .map((item) =>
-                item.map((key, value) => MapEntry(key.toString(), value)))
-            .toList()
-        : <Map<String, dynamic>>[];
+    final medals = data
+        .list('medals')
+        .whereType<Map>()
+        .map((item) => item.map((key, value) => MapEntry('$key', value)))
+        .toList();
 
     await connection!.statement(
       '''
@@ -797,8 +792,8 @@ class AdminController extends Controller {
       ''',
       [
         levelId,
-        body['name']?.toString() ?? 'Level',
-        _toInt(body['required_bling']),
+        data.trimmed('name', fallback: 'Level'),
+        _toInt(data.value('required_bling')),
       ],
     );
 
@@ -872,7 +867,7 @@ class AdminController extends Controller {
   Future<Response> processNotification(Request request, [dynamic _]) async {
     final notificationId = request.params()['id']?.toString() ?? '';
     final adminId = request.input('auth_admin_id')?.toString() ?? '';
-    final body = request.body;
+    final data = RequestData(request);
 
     await connection!.statement(
       '''
@@ -891,7 +886,7 @@ class AdminController extends Controller {
       [
         const Uuid().v4(),
         notificationId,
-        body['notes']?.toString() ?? '',
+        data.trimmed('notes'),
         adminId.isEmpty ? null : adminId,
       ],
     );
@@ -903,7 +898,7 @@ class AdminController extends Controller {
       [dynamic _]) async {
     final notificationId = request.params()['id']?.toString() ?? '';
     final adminId = request.input('auth_admin_id')?.toString() ?? '';
-    final message = request.body['message']?.toString().trim() ?? '';
+    final message = RequestData(request).trimmed('message');
 
     if (adminId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);
@@ -1044,8 +1039,7 @@ class AdminController extends Controller {
   Future<Response> reverseTransaction(Request request, [dynamic _]) async {
     final transactionId = request.params()['id']?.toString() ?? '';
     final adminId = request.input('auth_admin_id')?.toString() ?? '';
-    final body = request.body;
-    final reason = body['reason']?.toString() ?? '';
+    final reason = RequestData(request).trimmed('reason');
 
     final rows = await connection!.select(
       '''

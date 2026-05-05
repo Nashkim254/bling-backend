@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/block_model.dart';
 import 'package:bling/app/models/likes_model.dart';
 import 'package:bling/app/models/notification_model.dart';
@@ -286,39 +287,37 @@ class PostsController extends Controller {
 
   /// POST /api/posts  (authenticated)
   Future<Response> createPost(Request request) async {
-    request.validate({
-      'caption': 'string',
-      'post_type': 'required|string',
-    }, {
-      'post_type.required': 'Post type is required',
-    });
-
     final authUserId = request.input('auth_user_id') as String? ?? '';
     if (authUserId.isEmpty) {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
     try {
-      final payload = Map<String, dynamic>.from(request.body);
+      final data = RequestData(request);
+      final postType = data.trimmed('post_type');
+      if (postType.isEmpty) {
+        return Response.json({'post_type': 'Post type is required'}, 422);
+      }
+      final payload = data.body;
       final postId = const Uuid().v4();
       final now = DateTime.now().toIso8601String();
-      final media = _normalizeMediaInput(payload['media']);
+      final media = _normalizeMediaInput(data.value('media'));
       final legacyMedia = _legacyFieldsFromMedia(
         media,
-        fallbackImageUrl: payload['image_url']?.toString() ?? '',
-        fallbackThumbnailUrl: payload['thumbnail_url']?.toString() ?? '',
-        fallbackVideoUrl: payload['video_url']?.toString() ?? '',
-        fallbackMediaKind: payload['media_kind']?.toString() ?? 'image',
-        fallbackBucket: payload['storage_bucket']?.toString() ?? '',
-        fallbackPath: payload['storage_path']?.toString() ?? '',
-        fallbackMimeType: payload['mime_type']?.toString() ?? '',
+        fallbackImageUrl: data.trimmed('image_url'),
+        fallbackThumbnailUrl: data.trimmed('thumbnail_url'),
+        fallbackVideoUrl: data.trimmed('video_url'),
+        fallbackMediaKind: data.trimmed('media_kind', fallback: 'image'),
+        fallbackBucket: data.trimmed('storage_bucket'),
+        fallbackPath: data.trimmed('storage_path'),
+        fallbackMimeType: data.trimmed('mime_type'),
       );
 
       final body = <String, dynamic>{
         'id': postId,
         'user_id': authUserId,
-        'caption': payload['caption']?.toString().trim() ?? '',
-        'post_type': payload['post_type']?.toString().trim() ?? 'feed',
+        'caption': data.trimmed('caption'),
+        'post_type': postType,
         'media': jsonEncode(media),
         'image_url': legacyMedia['image_url'],
         'thumbnail_url': legacyMedia['thumbnail_url'],
@@ -333,13 +332,13 @@ class PostsController extends Controller {
       };
 
       // Handle hashtags - extract from caption if not provided
-      if (payload['hashtags'] == null) {
+      if (!data.body.containsKey('hashtags') && request.input('hashtags') == null) {
         final caption = body['caption'] as String? ?? '';
         final hashtags =
             RegExp(r'#\w+').allMatches(caption).map((m) => m.group(0)).toList();
         body['hashtags'] = jsonEncode(hashtags);
       } else {
-        final hashtags = payload['hashtags'];
+        final hashtags = data.value('hashtags');
         body['hashtags'] = hashtags is String ? hashtags : jsonEncode(hashtags);
       }
 
@@ -515,12 +514,6 @@ class PostsController extends Controller {
 
   /// POST /api/posts/:id/comment  (authenticated)
   Future<Response> addComment(Request request, [dynamic _]) async {
-    request.validate({
-      'content': 'required|string',
-    }, {
-      'content.required': 'Comment content is required',
-    });
-
     final postId = request.params()['id'] as String? ?? '';
     final authUserId = request.input('auth_user_id') as String? ?? '';
 
@@ -536,7 +529,12 @@ class PostsController extends Controller {
     final now = DateTime.now().toIso8601String();
     final commentId = const Uuid().v4();
 
-    final parentId = request.body['parent_id']?.toString();
+    final data = RequestData(request);
+    final content = data.trimmed('content');
+    if (content.isEmpty) {
+      return Response.json({'content': 'Comment content is required'}, 422);
+    }
+    final parentId = data.trimmed('parent_id').isEmpty ? null : data.trimmed('parent_id');
 
     await connection!.statement(
       'INSERT INTO comments (id, user_id, post_id, parent_id, content, created_at, updated_at) VALUES (\$1,\$2,\$3,\$4,\$5,\$6,\$7)',
@@ -545,7 +543,7 @@ class PostsController extends Controller {
         authUserId,
         postId,
         parentId,
-        request.body['content'],
+        content,
         now,
         now
       ],

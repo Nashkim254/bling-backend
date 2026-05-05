@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:bling/app/models/block_model.dart';
 import 'package:bling/app/models/follow.dart';
@@ -15,38 +16,33 @@ class AuthController extends Controller {
 
   /// POST /api/register
   Future<Response> register(Request request) async {
-    request.validate({
-      'name': 'required|string',
-      'username': 'required|string',
-      'password': 'required|string',
-      'email': 'required|email',
-    }, {
-      'name.required': 'Name is required',
-      'username.required': 'Username is required',
-      'password.required': 'Password is required',
-      'email.required': 'Email is required',
-      'email.email': 'Invalid email format',
+    final data = RequestData(request);
+    final errors = data.require({
+      'name': 'Name is required',
+      'username': 'Username is required',
+      'password': 'Password is required',
+      'email': 'Email is required',
     });
+    if (errors.isNotEmpty) {
+      return Response.json(errors, HttpStatus.unprocessableEntity);
+    }
 
-    final body = request.body is Map
-        ? Map<String, dynamic>.from(request.body as Map)
-        : const <String, dynamic>{};
-    final email =
-        (request.input('email')?.toString() ?? body['email']?.toString() ?? '')
-            .trim();
-    final username = ((request.input('username')?.toString() ??
-                body['username']?.toString() ??
-                '')
-            .toLowerCase())
-        .trim();
-    final password =
-        request.input('password')?.toString() ?? body['password']?.toString() ?? '';
-    final name =
-        request.input('name')?.toString() ?? body['name']?.toString() ?? '';
-    final msisdn =
-        request.input('msisdn')?.toString() ?? body['msisdn']?.toString() ?? '';
-    final avatar =
-        request.input('avatar')?.toString() ?? body['avatar']?.toString() ?? '';
+    final email = data.trimmed('email');
+    final username = data.lower('username');
+    final password = data.string('password');
+    final name = data.trimmed('name');
+    final msisdn = data.trimmed('msisdn');
+    final avatar = data.trimmed('avatar');
+
+    final emailUri = Uri.tryParse(email);
+    final emailLooksValid =
+        email.contains('@') && (emailUri?.host.trim().isNotEmpty ?? false);
+    if (!emailLooksValid) {
+      return Response.json(
+        {'email': 'Invalid email format'},
+        HttpStatus.unprocessableEntity,
+      );
+    }
 
     final existingEmail =
         await User().query().where('email', '=', email).first();
@@ -97,17 +93,17 @@ class AuthController extends Controller {
 
   /// POST /api/login
   Future<Response> login(Request request) async {
-    request.validate({
-      'password': 'required|string',
-      'email': 'required|string',
-    }, {
-      'password.required': 'Password is required',
-      'email.required': 'Email or username is required',
+    final data = RequestData(request);
+    final errors = data.require({
+      'password': 'Password is required',
+      'email': 'Email or username is required',
     });
+    if (errors.isNotEmpty) {
+      return Response.json(errors, HttpStatus.unprocessableEntity);
+    }
 
-    final body = request.body;
-    final emailOrUsername = body['email'] as String;
-    final password = body['password'] as String;
+    final emailOrUsername = data.trimmed('email');
+    final password = data.string('password');
 
     // Allow login with email OR username
     var user =
@@ -182,8 +178,8 @@ class AuthController extends Controller {
 
   /// POST /api/auth/refresh
   Future<Response> refreshToken(Request request) async {
-    final body = request.body;
-    final refreshTokenValue = body['refresh_token'] as String? ?? '';
+    final data = RequestData(request);
+    final refreshTokenValue = data.trimmed('refresh_token');
     if (refreshTokenValue.isEmpty) {
       return Response.json({'message': 'Refresh token required'}, 400);
     }
@@ -367,7 +363,7 @@ class AuthController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final requestBody = Map<String, dynamic>.from(request.body);
+    final requestBody = RequestData(request).body;
     final body = <String, dynamic>{};
 
     if (requestBody.containsKey('name')) {
@@ -867,7 +863,7 @@ class AuthController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final token = request.body['fcm_token']?.toString() ?? '';
+    final token = RequestData(request).trimmed('fcm_token');
     if (token.isEmpty) {
       return Response.json({'message': 'fcm_token required'}, 422);
     }
@@ -886,8 +882,9 @@ class AuthController extends Controller {
     if (userId.isEmpty)
       return Response.json({'message': 'Unauthenticated'}, 401);
 
-    final lat = double.tryParse(request.body['latitude']?.toString() ?? '');
-    final lng = double.tryParse(request.body['longitude']?.toString() ?? '');
+    final data = RequestData(request);
+    final lat = data.doubleValue('latitude');
+    final lng = data.doubleValue('longitude');
     if (lat == null || lng == null) {
       return Response.json({'message': 'latitude and longitude required'}, 422);
     }

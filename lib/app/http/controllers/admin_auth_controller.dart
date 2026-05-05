@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/user.dart';
 import 'package:bling/app/models/wallet.dart';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
@@ -8,17 +9,17 @@ import 'package:vania/vania.dart';
 
 class AdminAuthController extends Controller {
   Future<Response> login(Request request) async {
-    request.validate({
-      'password': 'required|string',
-      'email': 'required|string',
-    }, {
-      'password.required': 'Password is required',
-      'email.required': 'Email or username is required',
+    final data = RequestData(request);
+    final errors = data.require({
+      'password': 'Password is required',
+      'email': 'Email or username is required',
     });
+    if (errors.isNotEmpty) {
+      return Response.json(errors, HttpStatus.unprocessableEntity);
+    }
 
-    final body = request.body;
-    final emailOrUsername = body['email'] as String;
-    final password = body['password'] as String;
+    final emailOrUsername = data.trimmed('email');
+    final password = data.string('password');
 
     var user = await User().query().where('email', '=', emailOrUsername).first();
     user ??=

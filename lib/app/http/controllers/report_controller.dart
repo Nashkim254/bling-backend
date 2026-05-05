@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/report_model_db.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
@@ -9,7 +10,7 @@ class ReportController extends Controller {
   Future<Response> reportUser(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final targetId = request.params()['id']?.toString() ?? '';
-    final reason = request.body['reason']?.toString() ?? '';
+    final reason = RequestData(request).trimmed('reason');
 
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
     if (targetId == me) {
@@ -48,7 +49,7 @@ class ReportController extends Controller {
   Future<Response> reportPost(Request request, [dynamic _]) async {
     final me = request.input('auth_user_id')?.toString() ?? '';
     final postId = request.params()['id']?.toString() ?? '';
-    final reason = request.body['reason']?.toString() ?? '';
+    final reason = RequestData(request).trimmed('reason');
 
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/bling_package.dart';
 import 'package:bling/app/models/bling_transaction.dart';
 import 'package:bling/app/models/notification_model.dart';
@@ -24,9 +25,10 @@ class PurchaseController extends Controller {
       return Response.json({'message': 'Unauthenticated'}, 401);
     }
 
-    final body = request.body;
-    final platform = (body['platform'] as String? ?? '').toLowerCase();
-    final packageId = body['package_id'] as String? ?? '';
+    final data = RequestData(request);
+    final body = data.body;
+    final platform = data.lower('platform');
+    final packageId = data.trimmed('package_id');
 
     if (packageId.isEmpty) {
       return Response.json({'message': 'package_id is required'}, 422);
