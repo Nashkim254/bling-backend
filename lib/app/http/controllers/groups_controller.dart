@@ -769,7 +769,7 @@ class GroupsController extends Controller {
               updated_at = NOW()
           WHERE TRIM(id::text) = TRIM(\$1)
           ''',
-          [conversationId, body['name'], body['avatar']],
+          [conversationId, data.value('name'), data.value('avatar')],
         );
       }
 
