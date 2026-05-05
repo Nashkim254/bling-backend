@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:bling/app/mail/otp_mail.dart';
+import 'package:bling/services/resend_service.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
@@ -64,12 +65,12 @@ class OtpController extends Controller {
     );
 
     try {
-      await OtpMail(
+      await ResendService.instance.sendOtpMail(OtpMail(
         to: email,
         code: code,
         expiresAt: expiresAt,
         type: type,
-      ).send();
+      ));
     } catch (e) {
       await connection!.statement(
         'DELETE FROM otps WHERE email = \$1',

@@ -1,6 +1,6 @@
 import 'package:vania/vania.dart';
 
-class OtpMail extends Mailable {
+class OtpMail {
   final String to;
   final String code;
   final DateTime expiresAt;
@@ -13,37 +13,27 @@ class OtpMail extends Mailable {
     required this.type,
   });
 
-  @override
-  List<Attachment>? attachments() => null;
+  String get fromAddress =>
+      env('RESEND_FROM_EMAIL', 'onboarding@resend.dev') ??
+      'onboarding@resend.dev';
 
-  @override
-  Content content() {
+  String get fromName => env('RESEND_FROM_NAME', env('APP_NAME', 'Bling')) ??
+      env('APP_NAME', 'Bling') ??
+      'Bling';
+
+  String get subject => type == 'registration'
+      ? 'Your Bling registration code'
+      : 'Your Bling password reset code';
+
+  String get text {
     final expiresInMinutes = expiresAt.difference(DateTime.now()).inMinutes;
     final purpose = type == 'registration'
         ? 'complete your Bling account registration'
         : 'continue your Bling account recovery';
 
-    return Content(
-      text:
-          'Your Bling verification code is $code.\n\n'
-          'Use this code to $purpose.\n'
-          'This code expires in ${expiresInMinutes.clamp(0, 10)} minutes.\n\n'
-          'If you did not request this code, you can ignore this email.',
-    );
-  }
-
-  @override
-  Envelope envelope() {
-    final fromAddress = env('MAIL_FROM_ADDRESS', 'no-reply@blingsocial.social');
-    final fromName = env('MAIL_FROM_NAME', env('APP_NAME', 'Bling'));
-    final subject = type == 'registration'
-        ? 'Your Bling registration code'
-        : 'Your Bling password reset code';
-
-    return Envelope(
-      from: Address(fromAddress, fromName),
-      to: [Address(to)],
-      subject: subject,
-    );
+    return 'Your Bling verification code is $code.\n\n'
+        'Use this code to $purpose.\n'
+        'This code expires in ${expiresInMinutes.clamp(0, 10)} minutes.\n\n'
+        'If you did not request this code, you can ignore this email.';
   }
 }
