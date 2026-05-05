@@ -11,16 +11,24 @@ class OtpController extends Controller {
   /// POST /api/otp/send
   /// Body: { email }
   Future<Response> sendOtp(Request request) async {
-    final email =
-        (request.input('email')?.toString() ?? '').trim().toLowerCase();
+    final requestBody = request.body is Map
+        ? Map<String, dynamic>.from(request.body as Map)
+        : const <String, dynamic>{};
+    final email = ((request.input('email')?.toString() ??
+                requestBody['email']?.toString() ??
+                '')
+            .trim())
+        .toLowerCase();
     if (email.isEmpty) {
       return Response.json({'message': 'Email is required'}, 422);
     }
 
     // type: 'forgot_password' (default) requires existing user
     //       'registration' requires email NOT already registered
-    final type =
-        (request.input('type')?.toString() ?? 'forgot_password').trim();
+    final type = (request.input('type')?.toString() ??
+            requestBody['type']?.toString() ??
+            'forgot_password')
+        .trim();
 
     final users = await connection!.select(
       'SELECT id FROM users WHERE email = \$1 AND deleted_at IS NULL LIMIT 1',
@@ -89,9 +97,19 @@ class OtpController extends Controller {
   /// POST /api/otp/verify
   /// Body: { email, code }
   Future<Response> verifyOtp(Request request) async {
-    final email =
-        (request.input('email')?.toString() ?? '').trim().toLowerCase();
-    final code = (request.input('code')?.toString() ?? '').trim().toUpperCase();
+    final requestBody = request.body is Map
+        ? Map<String, dynamic>.from(request.body as Map)
+        : const <String, dynamic>{};
+    final email = ((request.input('email')?.toString() ??
+                requestBody['email']?.toString() ??
+                '')
+            .trim())
+        .toLowerCase();
+    final code = ((request.input('code')?.toString() ??
+                requestBody['code']?.toString() ??
+                '')
+            .trim())
+        .toUpperCase();
 
     if (email.isEmpty || code.isEmpty) {
       return Response.json({'message': 'Email and code are required'}, 422);
