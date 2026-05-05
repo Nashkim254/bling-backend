@@ -141,9 +141,10 @@ class OtpController extends Controller {
   }
 
   bool _isDevEnvironment() {
-    final appEnv = (Platform.environment['APP_ENV'] ?? env('APP_ENV', 'local'))
-        .trim()
-        .toLowerCase();
+    final appEnv =
+        (Platform.environment['APP_ENV'] ?? env('APP_ENV', 'local') ?? 'local')
+            .trim()
+            .toLowerCase();
     return _devEnvironments.contains(appEnv);
   }
 }
