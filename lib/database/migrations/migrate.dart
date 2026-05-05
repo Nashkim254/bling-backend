@@ -64,14 +64,22 @@ import 'add_price_to_admin_level_medals.dart';
 import 'seed_admin_module.dart';
 
 void main(List<String> args) async {
+  print('[migrate] starting setup');
   await MigrationConnection().setup();
+  print('[migrate] setup complete');
   if (args.isNotEmpty && args.first.toLowerCase() == "migrate:fresh") {
+    print('[migrate] dropping tables');
     await Migrate().dropTables();
+    print('[migrate] drop complete');
+    print('[migrate] applying migrations');
     await Migrate().registry();
   } else {
+    print('[migrate] applying migrations');
     await Migrate().registry();
   }
+  print('[migrate] migrations complete');
   await MigrationConnection().closeConnection();
+  print('[migrate] connection closed');
   exit(0);
 }
 
