@@ -1,10 +1,13 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'package:bling/app/mail/otp_mail.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
 class OtpController extends Controller {
+  static const _devEnvironments = {'local', 'development', 'dev', 'test'};
+
   /// POST /api/otp/send
   /// Body: { email }
   Future<Response> sendOtp(Request request) async {
@@ -52,17 +55,35 @@ class OtpController extends Controller {
       [id, email, code, expiresAt.toIso8601String(), now.toIso8601String()],
     );
 
-    // TODO: Send via SMTP when email service is configured
-    print('[OTP] ========================================');
-    print('[OTP] Code for $email: $code');
-    print('[OTP] Expires at: $expiresAt');
-    print('[OTP] ========================================');
+    try {
+      await OtpMail(
+        to: email,
+        code: code,
+        expiresAt: expiresAt,
+        type: type,
+      ).send();
+    } catch (e) {
+      await connection!.statement(
+        'DELETE FROM otps WHERE email = \$1',
+        [email],
+      );
+      print('[OTP] Failed to send OTP email to $email: $e');
+      return Response.json(
+        {'message': 'Failed to send OTP email'},
+        500,
+      );
+    }
 
-    return Response.json({
+    print('[OTP] Sent OTP email to $email, expires at $expiresAt');
+
+    final response = <String, dynamic>{
       'message': 'OTP sent to $email',
-      // Remove in production — dev only
-      'dev_code': code,
-    }, HttpStatus.ok);
+    };
+    if (_isDevEnvironment()) {
+      response['dev_code'] = code;
+    }
+
+    return Response.json(response, HttpStatus.ok);
   }
 
   /// POST /api/otp/verify
@@ -117,6 +138,13 @@ class OtpController extends Controller {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final random = Random.secure();
     return List.generate(4, (_) => chars[random.nextInt(chars.length)]).join();
+  }
+
+  bool _isDevEnvironment() {
+    final appEnv = (Platform.environment['APP_ENV'] ?? env('APP_ENV', 'local'))
+        .trim()
+        .toLowerCase();
+    return _devEnvironments.contains(appEnv);
   }
 }
 
