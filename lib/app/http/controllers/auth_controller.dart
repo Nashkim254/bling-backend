@@ -28,10 +28,25 @@ class AuthController extends Controller {
       'email.email': 'Invalid email format',
     });
 
-    final body = request.body;
-    final email = body['email'] as String;
-    final username = (body['username'] as String).toLowerCase().trim();
-    final password = body['password'] as String;
+    final body = request.body is Map
+        ? Map<String, dynamic>.from(request.body as Map)
+        : const <String, dynamic>{};
+    final email =
+        (request.input('email')?.toString() ?? body['email']?.toString() ?? '')
+            .trim();
+    final username = ((request.input('username')?.toString() ??
+                body['username']?.toString() ??
+                '')
+            .toLowerCase())
+        .trim();
+    final password =
+        request.input('password')?.toString() ?? body['password']?.toString() ?? '';
+    final name =
+        request.input('name')?.toString() ?? body['name']?.toString() ?? '';
+    final msisdn =
+        request.input('msisdn')?.toString() ?? body['msisdn']?.toString() ?? '';
+    final avatar =
+        request.input('avatar')?.toString() ?? body['avatar']?.toString() ?? '';
 
     final existingEmail =
         await User().query().where('email', '=', email).first();
@@ -51,12 +66,12 @@ class AuthController extends Controller {
 
     await User().query().insert({
       'id': userId,
-      'name': body['name'],
+      'name': name,
       'username': username,
       'email': email,
-      'msisdn': body['msisdn'] ?? '',
+      'msisdn': msisdn,
       'password': hashedPass,
-      'avatar': body['avatar'] ?? '',
+      'avatar': avatar,
       'cover_image': '',
       'bio': '',
       'social_links': '[]',
