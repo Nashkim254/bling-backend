@@ -94,6 +94,10 @@ class AuthController extends Controller {
   /// POST /api/login
   Future<Response> login(Request request) async {
     final data = RequestData(request);
+    print('[LOGIN] headers=${request.headers}');
+    print('[LOGIN] input_email=${request.input('email')}');
+    print('[LOGIN] input_password=${request.input('password')}');
+    print('[LOGIN] body=${request.body}');
     final errors = data.require({
       'password': 'Password is required',
       'email': 'Email or username is required',
