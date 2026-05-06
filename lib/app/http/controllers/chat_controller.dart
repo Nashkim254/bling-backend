@@ -292,16 +292,26 @@ class ChatController extends Controller {
     final me = _authUserId(request);
     final convId = request.params()['id']?.toString() ?? '';
     if (me.isEmpty) return Response.json({'message': 'Unauthenticated'}, 401);
+    if (convId.isEmpty) {
+      return Response.json({'message': 'Conversation not found'}, 404);
+    }
 
-    await connection!.statement(
-      'UPDATE chats SET is_read = 1 WHERE conversation_id = \$1 AND from_user_id != \$2 AND is_read = 0',
-      [convId, me],
-    );
-    await connection!.statement(
-      'UPDATE conversation_members SET last_read_at = \$1 WHERE conversation_id = \$2 AND user_id = \$3',
-      [DateTime.now().toIso8601String(), convId, me],
-    );
-    return Response.json({'message': 'ok'}, 200);
+    try {
+      await connection!.statement(
+        'UPDATE chats SET is_read = 1 WHERE conversation_id = \$1 AND from_user_id != \$2 AND is_read = 0',
+        [convId, me],
+      );
+      await connection!.statement(
+        'UPDATE conversation_members SET last_read_at = \$1 WHERE conversation_id = \$2 AND user_id = \$3',
+        [DateTime.now().toIso8601String(), convId, me],
+      );
+      return Response.json({'message': 'ok'}, 200);
+    } catch (e) {
+      return Response.json(
+        {'message': 'Error marking conversation read', 'error': e.toString()},
+        500,
+      );
+    }
   }
 
   // ── Messages ─────────────────────────────────────────────────────────────

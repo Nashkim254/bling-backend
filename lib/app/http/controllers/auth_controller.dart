@@ -799,7 +799,19 @@ class AuthController extends Controller {
       final page = int.tryParse(request.input('page')?.toString() ?? '1') ?? 1;
       final limit =
           int.tryParse(request.input('limit')?.toString() ?? '20') ?? 20;
-      final authUserId = request.input('auth_user_id') as String? ?? '';
+      var authUserId = request.input('auth_user_id') as String? ?? '';
+      if (authUserId.isEmpty) {
+        final authHeader = request.header('authorization') ?? '';
+        if (authHeader.toLowerCase().startsWith('bearer ')) {
+          final token = authHeader.substring(7).trim();
+          if (token.isNotEmpty) {
+            try {
+              await Auth().check(token);
+              authUserId = Auth().id()?.toString() ?? '';
+            } catch (_) {}
+          }
+        }
+      }
 
       // Fetch IDs that auth user has blocked or is blocked by
       List<String> excludedIds = [];
