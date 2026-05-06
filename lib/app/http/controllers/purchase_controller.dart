@@ -246,14 +246,18 @@ class PurchaseController extends Controller {
 
     final serviceAccountJson =
         Platform.environment['GOOGLE_SERVICE_ACCOUNT_JSON'] ?? '';
-    final packageName =
-        Platform.environment['GOOGLE_PLAY_PACKAGE_NAME'] ?? 'com.example.bling';
+    final packageName = Platform.environment['GOOGLE_PLAY_PACKAGE_NAME'] ?? '';
 
     if (serviceAccountJson.isEmpty) {
-      // Dev mode: accept any well-formed purchase token (remove in production)
-      print(
-          '[IAP] WARNING: No service account configured — skipping Android verification (dev only)');
-      return {'transaction_id': 'android_dev_$purchaseToken'};
+      return {
+        'error': 'Google Play verification is not configured on the server'
+      };
+    }
+
+    if (packageName.isEmpty) {
+      return {
+        'error': 'Google Play package name is not configured on the server'
+      };
     }
 
     // ── Get OAuth2 access token from service account ──────────────────────
@@ -284,6 +288,11 @@ class PurchaseController extends Controller {
       final purchaseState = data['purchaseState'] as int? ?? -1;
       if (purchaseState != 0) {
         return {'error': 'Purchase not in purchased state ($purchaseState)'};
+      }
+
+      final consumptionState = data['consumptionState'] as int? ?? -1;
+      if (consumptionState == 1) {
+        return {'error': 'Purchase token has already been consumed'};
       }
 
       final orderId = data['orderId'] as String? ?? purchaseToken;

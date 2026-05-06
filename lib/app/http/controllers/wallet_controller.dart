@@ -134,86 +134,10 @@ class WalletController extends Controller {
   /// POST /api/bling/purchase  (authenticated)
   /// Body: { package_id, payment_reference }
   Future<Response> purchaseBling(Request request) async {
-    final authUserId = request.input('auth_user_id') as String? ?? '';
-    if (authUserId.isEmpty) {
-      return Response.json({'message': 'Unauthenticated'}, 401);
-    }
-
-    final data = RequestData(request);
-    final packageId = data.trimmed('package_id');
-    if (packageId.isEmpty) {
-      return Response.json({'package_id': 'Package ID is required'}, 422);
-    }
-    final paymentRef = data.trimmed('payment_reference');
-
-    final package =
-        await BlingPackage().query().where('id', '=', packageId).first();
-    if (package == null) {
-      return Response.json({'message': 'Package not found'}, 404);
-    }
-    if (package['is_active'] == 0) {
-      return Response.json({'message': 'Package is no longer available'}, 400);
-    }
-
-    final blingAmount = package['bling_amount'] as int;
-    final now = DateTime.now().toIso8601String();
-
-    // Add bling to wallet
-    var wallet =
-        await Wallet().query().where('user_id', '=', authUserId).first();
-    if (wallet == null) {
-      final walletId = const Uuid().v4();
-      await Wallet().query().insert({
-        'id': walletId,
-        'user_id': authUserId,
-        'balance': blingAmount,
-        'created_at': now,
-        'updated_at': now,
-      });
-    } else {
-      final newBalance = (wallet['balance'] as int) + blingAmount;
-      await Wallet().query().where('user_id', '=', authUserId).update({
-        'balance': newBalance,
-        'updated_at': now,
-      });
-    }
-
-    // Record transaction
-    await BlingTransaction().query().insert({
-      'id': const Uuid().v4(),
-      'user_id': authUserId,
-      'type': 'purchase',
-      'amount': blingAmount,
-      'reference': paymentRef,
-      'description': 'Purchased ${package['name']} package',
-      'created_at': now,
-      'updated_at': now,
-    });
-
-    // Update bling_score
-    final user = await User().query().where('id', '=', authUserId).first();
-    final newScore = ((user?['bling_score'] as int?) ?? 0) + blingAmount;
-    await User().query().where('id', '=', authUserId).update({
-      'bling_score': newScore,
-      'updated_at': now,
-    });
-
-    final updatedWallet =
-        await Wallet().query().where('user_id', '=', authUserId).first();
-
-    // Push notification to buyer
-    unawaited(FcmService.instance.sendToUser(
-      authUserId,
-      title: 'Bling Purchased! 🎉',
-      body: 'You received $blingAmount Bling from ${package['name']} package',
-      data: {'type': 'purchase', 'amount': blingAmount.toString()},
-    ));
-
     return Response.json({
-      'message': 'Bling purchased successfully',
-      'bling_added': blingAmount,
-      'new_balance': updatedWallet?['balance'] ?? blingAmount,
-    }, HttpStatus.ok);
+      'message':
+          'Direct wallet credit purchases are disabled. Use store-verified purchases via /api/bling/purchase/verify.',
+    }, HttpStatus.gone);
   }
 
   /// POST /api/bling/transfer  (authenticated)
