@@ -63,6 +63,9 @@ class ChatController extends Controller {
       return Response.json({
         'conversations': rows
             .whereType<Map<String, dynamic>>()
+            .where((row) =>
+                row['type']?.toString().trim() != 'dm' ||
+                (row['partner_id']?.toString().trim().isNotEmpty ?? false))
             .map(_formatConversation)
             .toList(),
       }, HttpStatus.ok);
@@ -101,6 +104,9 @@ class ChatController extends Controller {
       return Response.json({
         'conversations': rows
             .whereType<Map<String, dynamic>>()
+            .where((row) =>
+                row['type']?.toString().trim() != 'dm' ||
+                (row['partner_id']?.toString().trim().isNotEmpty ?? false))
             .map(_formatConversation)
             .toList(),
       }, HttpStatus.ok);
@@ -121,6 +127,7 @@ class ChatController extends Controller {
         .list('member_ids')
         .map((e) => e.toString())
         .where((e) => e.isNotEmpty)
+        .where((e) => e != me)
         .toList();
 
     if (memberIds.isEmpty) {
@@ -146,6 +153,13 @@ class ChatController extends Controller {
     }
 
     final allMembers = ({me, ...memberIds}).toList();
+
+    if (type == 'dm' && memberIds.length != 1) {
+      return Response.json(
+        {'message': 'DM conversations require exactly one other user'},
+        422,
+      );
+    }
 
     final now = DateTime.now().toIso8601String();
 
