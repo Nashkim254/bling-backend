@@ -1044,6 +1044,7 @@ class PostsController extends Controller {
       SELECT COUNT(*) AS count
       FROM posts p
       WHERE p.is_active = 1
+        AND COALESCE(p.post_type, 'feed') <> 'reel'
       $blockedClause
       ''',
       [],
@@ -1081,7 +1082,8 @@ class PostsController extends Controller {
         .leftJoin('users', 'users.id', '=', 'posts.user_id')
         .leftJoin('comments', 'comments.post_id', '=', 'posts.id')
         .leftJoin('likes', 'likes.post_id', '=', 'posts.id')
-        .where('posts.is_active', '=', 1);
+        .where('posts.is_active', '=', 1)
+        .where('posts.post_type', '!=', 'reel');
 
     for (final id in blockedIds) {
       query = query.where('posts.user_id', '!=', id);
@@ -1155,6 +1157,7 @@ class PostsController extends Controller {
       FROM posts p
       INNER JOIN users u ON u.id = p.user_id
       WHERE p.is_active = 1
+        AND COALESCE(p.post_type, 'feed') <> 'reel'
         AND p.id IN ($placeholders)
       ''',
       postIds,
