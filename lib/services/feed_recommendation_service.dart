@@ -144,8 +144,8 @@ class FeedRecommendationService {
       '''
       SELECT p.id
       FROM follows f
-      INNER JOIN posts p ON p.user_id = f.following_id
-      WHERE f.follower_id = \$1
+      INNER JOIN posts p ON TRIM(p.user_id) = TRIM(f.following_id)
+      WHERE TRIM(f.follower_id) = TRIM(\$1)
         AND p.is_active = 1
       ORDER BY p.created_at DESC
       LIMIT 12
@@ -162,7 +162,7 @@ class FeedRecommendationService {
       '''
       SELECT id
       FROM posts
-      WHERE user_id = \$1 AND is_active = 1
+      WHERE TRIM(user_id) = TRIM(\$1) AND is_active = 1
       ORDER BY created_at DESC
       LIMIT 8
       ''',
@@ -220,8 +220,9 @@ class FeedRecommendationService {
     }
 
     final positiveClause = _uuidListClause(validPositiveIds);
-    final blockedClause = _uuidListClause(
-        blockedUserIds.map((item) => item.trim()).where(_isUuid));
+    final blockedTextClause = _textListClause(
+      blockedUserIds.map((item) => item.trim()).where((item) => item.isNotEmpty),
+    );
 
     final rows = await connection!.select(
       '''
@@ -237,12 +238,12 @@ class FeedRecommendationService {
       SELECT pe.post_id, pe.user_id, 1 - (pe.embedding <=> sv.embedding) AS score
       FROM post_embeddings pe
       CROSS JOIN seed_vector sv
-      INNER JOIN posts p ON p.id = pe.post_id
+      INNER JOIN posts p ON TRIM(p.id) = TRIM(pe.post_id::text)
       WHERE sv.embedding IS NOT NULL
         AND p.is_active = 1
-        AND pe.user_id <> '$authUserId'::uuid
+        AND TRIM(pe.user_id::text) <> TRIM('$authUserId')
         AND pe.post_id NOT IN ($positiveClause)
-        ${blockedClause.isEmpty ? '' : 'AND pe.user_id NOT IN ($blockedClause)'}
+        ${blockedTextClause.isEmpty ? '' : 'AND TRIM(pe.user_id::text) NOT IN ($blockedTextClause)'}
       ORDER BY pe.embedding <=> sv.embedding ASC, p.created_at DESC
       LIMIT $limit
       ''',
@@ -286,6 +287,15 @@ class FeedRecommendationService {
         .map((value) => value.trim())
         .where(_isUuid)
         .map((value) => "'$value'::uuid")
+        .toList();
+    return items.join(', ');
+  }
+
+  String _textListClause(Iterable<String> values) {
+    final items = values
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .map((value) => "'$value'")
         .toList();
     return items.join(', ');
   }
