@@ -34,9 +34,13 @@ class AuthController extends Controller {
     final msisdn = data.trimmed('msisdn');
     final avatar = data.trimmed('avatar');
 
-    final emailUri = Uri.tryParse(email);
-    final emailLooksValid =
-        email.contains('@') && (emailUri?.host.trim().isNotEmpty ?? false);
+    final emailParts = email.split('@');
+    final emailLooksValid = emailParts.length == 2 &&
+        emailParts.first.trim().isNotEmpty &&
+        emailParts.last.trim().isNotEmpty &&
+        emailParts.last.contains('.') &&
+        !emailParts.last.startsWith('.') &&
+        !emailParts.last.endsWith('.');
     if (!emailLooksValid) {
       return Response.json(
         {'email': 'Invalid email format'},
