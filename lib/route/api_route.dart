@@ -115,8 +115,8 @@ class ApiRoute implements Route {
       // User profile
       Router.get('/user/profile', authController.getProfile);
       Router.put('/user/profile', authController.updateProfile);
-      Router.post(
-          '/user/verification/purchase', authController.purchaseVerificationBadge);
+      Router.post('/user/verification/purchase',
+          authController.purchaseVerificationBadge);
       Router.put('/user/fcm-token', authController.updateFcmToken);
       Router.put('/user/location', authController.updateLocation);
       Router.get('/users/nearby', authController.getNearbyUsers);
@@ -128,6 +128,7 @@ class ApiRoute implements Route {
       Router.post('/feed/interactions', postsController.recordFeedInteraction);
       Router.get('/posts', postsController.getPosts);
       Router.post('/posts', postsController.createPost);
+      Router.put('/posts/{id}', postsController.updatePost);
       Router.get('/posts/{id}', postsController.getPost);
       Router.delete('/posts/{id}', postsController.deletePost);
       Router.post('/posts/{id}/like', postsController.toggleLike);
@@ -140,8 +141,7 @@ class ApiRoute implements Route {
       Router.post('/challenges', challengesController.createChallenge);
       Router.post(
           '/challenges/{id}/participate', challengesController.participate);
-      Router.post(
-          '/challenges/{id}/award', challengesController.awardWinner);
+      Router.post('/challenges/{id}/award', challengesController.awardWinner);
 
       // Groups
       Router.get('/groups', groupsController.getGroups);

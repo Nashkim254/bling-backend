@@ -16,13 +16,12 @@ import 'package:vania/vania.dart';
 
 class PostsController extends Controller {
   bool get _feedLogEnabled {
-    final value =
-        (Platform.environment['FEED_RECOMMENDATION_LOGS'] ??
-                env('FEED_RECOMMENDATION_LOGS', '') ??
-                '')
-            .toString()
-            .trim()
-            .toLowerCase();
+    final value = (Platform.environment['FEED_RECOMMENDATION_LOGS'] ??
+            env('FEED_RECOMMENDATION_LOGS', '') ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
     return value == '1' || value == 'true' || value == 'yes' || value == 'on';
   }
 
@@ -331,16 +330,12 @@ class PostsController extends Controller {
         'updated_at': now,
       };
 
-      // Handle hashtags - extract from caption if not provided
-      if (!data.body.containsKey('hashtags') && request.input('hashtags') == null) {
-        final caption = body['caption'] as String? ?? '';
-        final hashtags =
-            RegExp(r'#\w+').allMatches(caption).map((m) => m.group(0)).toList();
-        body['hashtags'] = jsonEncode(hashtags);
-      } else {
-        final hashtags = data.value('hashtags');
-        body['hashtags'] = hashtags is String ? hashtags : jsonEncode(hashtags);
-      }
+      body['hashtags'] = _normalizeHashtagsValue(
+        data.body.containsKey('hashtags') || request.input('hashtags') != null
+            ? data.value('hashtags')
+            : null,
+        caption: body['caption'] as String? ?? '',
+      );
 
       await Posts().query().insert(body);
       unawaited(FeedRecommendationService.instance.indexPost(body));
@@ -362,6 +357,91 @@ class PostsController extends Controller {
     } catch (e) {
       return Response.json({
         'message': 'Error creating post',
+        'error': e.toString(),
+      }, HttpStatus.internalServerError);
+    }
+  }
+
+  /// PUT /api/posts/:id  (authenticated, own post only)
+  Future<Response> updatePost(Request request, [dynamic _]) async {
+    final postId = request.params()['id'] as String? ?? '';
+    final authUserId = request.input('auth_user_id') as String? ?? '';
+
+    if (authUserId.isEmpty) {
+      return Response.json({'message': 'Unauthenticated'}, 401);
+    }
+    if (postId.trim().isEmpty) {
+      return Response.json({'message': 'Post id is required'}, 422);
+    }
+
+    try {
+      final post = await Posts().query().where('id', '=', postId).first();
+      if (post == null || post['is_active'] != 1) {
+        return Response.json({'message': 'Post not found'}, 404);
+      }
+      if (post['user_id'] != authUserId) {
+        return Response.json({'message': 'Forbidden'}, 403);
+      }
+
+      final data = RequestData(request);
+      final caption = data.trimmed('caption');
+      if (caption.isEmpty) {
+        return Response.json({'caption': 'Caption is required'}, 422);
+      }
+
+      final now = DateTime.now().toIso8601String();
+      final hashtags = _normalizeHashtagsValue(
+        data.body.containsKey('hashtags') || request.input('hashtags') != null
+            ? data.value('hashtags')
+            : null,
+        caption: caption,
+      );
+
+      final updateBody = <String, dynamic>{
+        'caption': caption,
+        'hashtags': hashtags,
+        'updated_at': now,
+      };
+
+      await Posts().query().where('id', '=', postId).update(updateBody);
+
+      final updatedPost = <String, dynamic>{
+        'id': post['id'],
+        'user_id': post['user_id'],
+        'caption': caption,
+        'post_type': post['post_type'],
+        'image_url': post['image_url'] ?? '',
+        'thumbnail_url': post['thumbnail_url'] ?? '',
+        'video_url': post['video_url'] ?? '',
+        'media_kind': post['media_kind'] ?? 'image',
+        'storage_bucket': post['storage_bucket'] ?? '',
+        'storage_path': post['storage_path'] ?? '',
+        'mime_type': post['mime_type'] ?? '',
+        'media': _decodeMediaText(
+          post['media'],
+          imageUrl: post['image_url']?.toString() ?? '',
+          thumbnailUrl: post['thumbnail_url']?.toString() ?? '',
+          videoUrl: post['video_url']?.toString() ?? '',
+          mediaKind: post['media_kind']?.toString() ?? 'image',
+          bucket: post['storage_bucket']?.toString() ?? '',
+          path: post['storage_path']?.toString() ?? '',
+          mimeType: post['mime_type']?.toString() ?? '',
+        ),
+        'is_active': post['is_active'],
+        'created_at': post['created_at']?.toString() ?? now,
+        'updated_at': now,
+        'comment_count': 0,
+        'like_count': 0,
+        'extracted_hashtags': hashtags,
+      };
+
+      return Response.json({
+        'message': 'Post updated successfully',
+        'post': updatedPost,
+      }, 200);
+    } catch (e) {
+      return Response.json({
+        'message': 'Error updating post',
         'error': e.toString(),
       }, HttpStatus.internalServerError);
     }
@@ -402,8 +482,9 @@ class PostsController extends Controller {
     final requestBody = request.body is Map
         ? Map<String, dynamic>.from(request.body as Map)
         : const <String, dynamic>{};
-    final postId =
-        request.input('post_id')?.toString() ?? requestBody['post_id']?.toString() ?? '';
+    final postId = request.input('post_id')?.toString() ??
+        requestBody['post_id']?.toString() ??
+        '';
     final interactionType = request.input('interaction_type')?.toString() ??
         requestBody['interaction_type']?.toString() ??
         '';
@@ -431,7 +512,7 @@ class PostsController extends Controller {
           ? Map<String, dynamic>.from(request.input('metadata') as Map)
           : requestBody['metadata'] is Map
               ? Map<String, dynamic>.from(requestBody['metadata'] as Map)
-          : null,
+              : null,
     );
 
     return Response.json({'message': 'Interaction recorded'}, 200);
@@ -534,19 +615,12 @@ class PostsController extends Controller {
     if (content.isEmpty) {
       return Response.json({'content': 'Comment content is required'}, 422);
     }
-    final parentId = data.trimmed('parent_id').isEmpty ? null : data.trimmed('parent_id');
+    final parentId =
+        data.trimmed('parent_id').isEmpty ? null : data.trimmed('parent_id');
 
     await connection!.statement(
       'INSERT INTO comments (id, user_id, post_id, parent_id, content, created_at, updated_at) VALUES (\$1,\$2,\$3,\$4,\$5,\$6,\$7)',
-      [
-        commentId,
-        authUserId,
-        postId,
-        parentId,
-        content,
-        now,
-        now
-      ],
+      [commentId, authUserId, postId, parentId, content, now, now],
     );
     unawaited(FeedInteractionService.instance.record(
       userId: authUserId,
@@ -926,6 +1000,41 @@ class PostsController extends Controller {
         .toList();
   }
 
+  String _normalizeHashtagsValue(
+    dynamic rawHashtags, {
+    required String caption,
+  }) {
+    if (rawHashtags == null) {
+      return jsonEncode(_extractHashtags(caption));
+    }
+    if (rawHashtags is String) {
+      final trimmed = rawHashtags.trim();
+      if (trimmed.isEmpty) {
+        return jsonEncode(_extractHashtags(caption));
+      }
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is List) {
+          return jsonEncode(decoded.map((item) => item.toString()).toList());
+        }
+      } catch (_) {}
+      return jsonEncode(_extractHashtags('$caption $trimmed'));
+    }
+    if (rawHashtags is List) {
+      return jsonEncode(rawHashtags.map((item) => item.toString()).toList());
+    }
+    return jsonEncode(_extractHashtags(caption));
+  }
+
+  List<String> _extractHashtags(String text) {
+    return RegExp(r'#\w+')
+        .allMatches(text)
+        .map((match) => match.group(0) ?? '')
+        .where((tag) => tag.isNotEmpty)
+        .toSet()
+        .toList();
+  }
+
   Map<String, String> _legacyFieldsFromMedia(
     List<Map<String, dynamic>> media, {
     required String fallbackImageUrl,
@@ -1128,11 +1237,10 @@ class PostsController extends Controller {
         .whereType<Map>()
         .map((row) => Map<String, dynamic>.from(row))
         .where((row) {
-          final videoUrl = row['video_url']?.toString() ?? '';
-          final mediaKind = row['media_kind']?.toString() ?? '';
-          return videoUrl.isNotEmpty || mediaKind == 'video';
-        })
-        .toList();
+      final videoUrl = row['video_url']?.toString() ?? '';
+      final mediaKind = row['media_kind']?.toString() ?? '';
+      return videoUrl.isNotEmpty || mediaKind == 'video';
+    }).toList();
   }
 
   Future<List<Map<String, dynamic>>> _loadPostsByIds(
