@@ -6,12 +6,16 @@ import 'package:bling/app/models/bling_package.dart';
 import 'package:bling/app/models/bling_transaction.dart';
 import 'package:bling/app/models/notification_model.dart';
 import 'package:bling/services/fcm_service.dart';
+import 'package:bling/services/google_play_catalog_service.dart';
 import 'package:bling/app/models/user.dart';
 import 'package:bling/app/models/wallet.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
 class WalletController extends Controller {
+  final GooglePlayCatalogService _googlePlayCatalogService =
+      GooglePlayCatalogService();
+
   /// GET /api/wallet  (authenticated)
   Future<Response> getWallet(Request request) async {
     final authUserId = request.input('auth_user_id') as String? ?? '';
@@ -122,13 +126,30 @@ class WalletController extends Controller {
 
   /// GET /api/bling/packages
   Future<Response> getPackages(Request request) async {
+    await _googlePlayCatalogService.syncPackagesIfStale();
+
     final packages = await BlingPackage()
         .query()
         .where('is_active', '=', 1)
         .orderBy('bling_amount', 'ASC')
         .get();
 
-    return Response.json({'packages': packages}, HttpStatus.ok);
+    final data = (packages as List).whereType<Map>().map((pkg) {
+      final playTitle = pkg['play_title']?.toString().trim() ?? '';
+      final playDescription = pkg['play_description']?.toString().trim() ?? '';
+      final playFormattedPrice =
+          pkg['play_formatted_price']?.toString().trim() ?? '';
+
+      return {
+        ...pkg,
+        'display_name':
+            playTitle.isNotEmpty ? playTitle : pkg['name']?.toString() ?? '',
+        'description': playDescription,
+        'display_price': playFormattedPrice,
+      };
+    }).toList();
+
+    return Response.json({'packages': data}, HttpStatus.ok);
   }
 
   /// POST /api/bling/purchase  (authenticated)
@@ -166,7 +187,8 @@ class WalletController extends Controller {
     final toUserId = data.trimmed('to_user_id');
     final amount = data.intValue('amount') ?? 0;
     final message = data.trimmed('message');
-    final context = _normalizeTransferContext(data.trimmed('context', fallback: 'direct'));
+    final context =
+        _normalizeTransferContext(data.trimmed('context', fallback: 'direct'));
 
     if (toUserId == authUserId) {
       return Response.json({'message': 'Cannot transfer to yourself'}, 400);

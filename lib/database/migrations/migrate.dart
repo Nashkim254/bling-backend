@@ -22,6 +22,7 @@ import 'create_otps_table.dart';
 import 'add_iap_columns.dart';
 import 'fix_bling_store_product_ids.dart';
 import 'update_bling_package_pricing.dart';
+import 'add_play_catalog_columns_to_bling_packages.dart';
 import 'add_commission_columns.dart';
 import 'add_ad_campaign_columns.dart';
 import 'create_ad_impressions_table.dart';
@@ -109,6 +110,7 @@ class Migrate {
     await AddIapColumns().up();
     await FixBlingStoreProductIds().up();
     await UpdateBlingPackagePricing().up();
+    await AddPlayCatalogColumnsToBlingPackages().up();
     await AddCommissionColumns().up();
     await AddAdCampaignColumns().up();
     await CreateAdImpressionsTable().up();
@@ -179,6 +181,7 @@ class Migrate {
     await CreateNotificationsTable().down();
     await CreateFollowsTable().down();
     await UpdateBlingPackagePricing().down();
+    await AddPlayCatalogColumnsToBlingPackages().down();
     await FixBlingStoreProductIds().down();
     await CreateBlingTransactionsTable().down();
     await CreateBlingPackagesTable().down();
