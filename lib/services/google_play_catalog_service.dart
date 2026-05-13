@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:bling/app/models/bling_package.dart';
 import 'package:http/http.dart' as http;
 import 'package:vania/vania.dart';
 
@@ -94,31 +95,21 @@ class GooglePlayCatalogService {
       final priceMicros = _microsFromRegionalPrice(regionalPrice);
       final formattedPrice = _formattedPrice(regionalPrice, priceMicros);
 
-      await connection!.execute(
-        'UPDATE bling_packages '
-        'SET play_title = \$1, '
-        'play_description = \$2, '
-        'play_language = \$3, '
-        'play_purchase_option_id = \$4, '
-        'play_formatted_price = \$5, '
-        'play_price_currency_code = \$6, '
-        'play_price_micros = \$7, '
-        'play_offer_tags = \$8, '
-        'play_synced_at = NOW(), '
-        'updated_at = NOW() '
-        'WHERE id = \$9',
-        [
-          listing?['title']?.toString() ?? package['name']?.toString() ?? '',
-          listing?['description']?.toString() ?? '',
-          listing?['languageCode']?.toString() ?? _defaultLanguage,
-          purchaseOption?['purchaseOptionId']?.toString() ?? '',
-          formattedPrice,
-          _currencyCode(regionalPrice),
-          priceMicros,
-          jsonEncode(_extractOfferTags(purchaseOption)),
-          package['id'],
-        ],
-      );
+      await BlingPackage().query().where('id', '=', package['id']).update({
+        'play_title':
+            listing?['title']?.toString() ?? package['name']?.toString() ?? '',
+        'play_description': listing?['description']?.toString() ?? '',
+        'play_language':
+            listing?['languageCode']?.toString() ?? _defaultLanguage,
+        'play_purchase_option_id':
+            purchaseOption?['purchaseOptionId']?.toString() ?? '',
+        'play_formatted_price': formattedPrice,
+        'play_price_currency_code': _currencyCode(regionalPrice),
+        'play_price_micros': priceMicros,
+        'play_offer_tags': jsonEncode(_extractOfferTags(purchaseOption)),
+        'play_synced_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      });
       updatedAny = true;
     }
 
