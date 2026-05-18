@@ -4,6 +4,13 @@ import 'package:bling/support/location_scope_helper.dart';
 import 'package:vania/vania.dart';
 
 class LeaderboardController extends Controller {
+  int _asInt(dynamic value, {int fallback = 0}) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? fallback;
+    return fallback;
+  }
+
   String _authUserId(Request request) {
     final requestUserId = request.input('auth_user_id')?.toString() ?? '';
     if (requestUserId.isNotEmpty) return requestUserId;
@@ -306,15 +313,15 @@ class LeaderboardController extends Controller {
         .whereType<Map>()
         .map((row) => Map<String, dynamic>.from(row))
         .map((row) => <String, dynamic>{
-              'rank': (row['rank'] as num?)?.toInt() ?? 0,
+              'rank': _asInt(row['rank']),
               'id': row['id']?.toString() ?? '',
               'name': row['name']?.toString() ?? '',
               'username': row['username']?.toString() ?? '',
               'avatar': row['avatar']?.toString() ?? '',
               'is_verified':
                   row['is_verified'] == true || row['is_verified'] == 1,
-              'score': (row['score'] as num?)?.toInt() ?? 0,
-              'bling_balance': (row['bling_balance'] as num?)?.toInt() ?? 0,
+              'score': _asInt(row['score']),
+              'bling_balance': _asInt(row['bling_balance']),
               'is_me': (row['id']?.toString() ?? '') == authUserId,
               'continent': row['continent']?.toString() ?? '',
               'country': row['country']?.toString() ?? '',
@@ -441,7 +448,7 @@ class LeaderboardController extends Controller {
         'SELECT COUNT(*) AS cnt FROM (${query.sql}) base',
         query.args,
       );
-      final totalCount = (countRows.first['cnt'] as num?)?.toInt() ?? 0;
+      final totalCount = countRows.isEmpty ? 0 : _asInt(countRows.first['cnt']);
 
       return Response.json({
         'leaderboard': {
