@@ -2,10 +2,53 @@ import 'dart:io';
 
 import 'package:bling/app/http/request_data.dart';
 import 'package:bling/app/models/wallet.dart';
+import 'package:bling/support/location_scope_helper.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
 
 class AdController extends Controller {
+  Future<Map<String, String>> _viewerLocation(String userId) async {
+    if (userId.isEmpty) {
+      return const <String, String>{
+        'continent': '',
+        'country': '',
+        'country_code': '',
+        'city': '',
+      };
+    }
+
+    final rows = await connection!.select(
+      '''
+      SELECT continent, country, country_code, city
+      FROM users
+      WHERE id = \$1
+      LIMIT 1
+      ''',
+      [userId],
+    );
+
+    if (rows.isEmpty) {
+      return const <String, String>{
+        'continent': '',
+        'country': '',
+        'country_code': '',
+        'city': '',
+      };
+    }
+
+    final row = Map<String, dynamic>.from(rows.first as Map);
+    return <String, String>{
+      'continent':
+          LocationScopeHelper.normalizeText(row['continent']?.toString() ?? ''),
+      'country':
+          LocationScopeHelper.normalizeText(row['country']?.toString() ?? ''),
+      'country_code': LocationScopeHelper.normalizeCountryCode(
+        row['country_code']?.toString() ?? '',
+      ),
+      'city': LocationScopeHelper.normalizeText(row['city']?.toString() ?? ''),
+    };
+  }
+
   // ─── Serving ─────────────────────────────────────────────────────────────
 
   /// GET /api/ads?count=1&user_level=1&is_verified=false
@@ -24,8 +67,15 @@ class AdController extends Controller {
     final isVerified = request.input('is_verified')?.toString() == 'true';
 
     try {
+      final viewerLocation = await _viewerLocation(userId);
+      final args = <dynamic>[];
+      String addArg(dynamic value) {
+        args.add(value);
+        return '\$${args.length}';
+      }
+
       final userClause = userId.isNotEmpty
-          ? "AND NOT EXISTS (SELECT 1 FROM ad_impressions ai WHERE ai.ad_id = a.id AND ai.user_id = '$userId' AND ai.created_at::date = CURRENT_DATE)"
+          ? 'AND NOT EXISTS (SELECT 1 FROM ad_impressions ai WHERE ai.ad_id = a.id AND ai.user_id = ${addArg(userId)} AND ai.created_at::date = CURRENT_DATE)'
           : '';
 
       final verifiedClause = isVerified
@@ -33,12 +83,58 @@ class AdController extends Controller {
           : 'AND (a.target_verified_only = false OR a.target_verified_only IS NULL)';
 
       final levelClause =
-          'AND (a.target_min_level IS NULL OR a.target_min_level <= $userLevel)';
+          'AND (a.target_min_level IS NULL OR a.target_min_level <= ${addArg(userLevel)})';
+
+      final locationClauses = <String>[];
+      final continent = viewerLocation['continent'] ?? '';
+      final country = viewerLocation['country'] ?? '';
+      final countryCode = viewerLocation['country_code'] ?? '';
+      final city = viewerLocation['city'] ?? '';
+
+      if (continent.isNotEmpty) {
+        final continentParam = addArg(continent);
+        locationClauses.add(
+          "(a.target_continent IS NULL OR a.target_continent = '' OR LOWER(a.target_continent) = LOWER($continentParam))",
+        );
+      } else {
+        locationClauses.add(
+          "(a.target_continent IS NULL OR a.target_continent = '')",
+        );
+      }
+
+      if (countryCode.isNotEmpty) {
+        final countryCodeParam = addArg(countryCode);
+        locationClauses.add(
+          "(a.target_country_code IS NULL OR a.target_country_code = '' OR UPPER(a.target_country_code) = UPPER($countryCodeParam))",
+        );
+      } else if (country.isNotEmpty) {
+        final countryParam = addArg(country);
+        locationClauses.add(
+          "(a.target_country IS NULL OR a.target_country = '' OR LOWER(a.target_country) = LOWER($countryParam))",
+        );
+      } else {
+        locationClauses.add(
+          "(COALESCE(a.target_country_code, '') = '' AND COALESCE(a.target_country, '') = '')",
+        );
+      }
+
+      if (city.isNotEmpty) {
+        final cityParam = addArg(city);
+        locationClauses.add(
+          "(a.target_city IS NULL OR a.target_city = '' OR LOWER(a.target_city) = LOWER($cityParam))",
+        );
+      } else {
+        locationClauses.add("(a.target_city IS NULL OR a.target_city = '')");
+      }
+
+      final locationClause = locationClauses.join('\n          AND ');
+      final limitParam = addArg(count);
 
       final ads = await connection!.select('''
         SELECT
           a.id, a.title, a.body, a.image_url, a.thumbnail_url, a.video_url,
           a.media_kind, a.storage_bucket, a.storage_path, a.mime_type, a.target_url,
+          a.target_continent, a.target_country, a.target_country_code, a.target_city,
           a.cpm_bling, a.budget_bling, a.spent_bling,
           a.total_impressions, a.total_clicks,
           -- Weighted score
@@ -55,10 +151,11 @@ class AdController extends Controller {
           AND (a.end_at IS NULL OR a.end_at >= NOW())
           $levelClause
           $verifiedClause
+          AND $locationClause
           $userClause
         ORDER BY score DESC
-        LIMIT \$1
-      ''', [count]);
+        LIMIT $limitParam
+      ''', args);
 
       return Response.json({
         'ads': ads
@@ -75,6 +172,10 @@ class AdController extends Controller {
                   'storage_path': ad['storage_path'] ?? '',
                   'mime_type': ad['mime_type'] ?? '',
                   'target_url': ad['target_url'],
+                  'target_continent': ad['target_continent'] ?? '',
+                  'target_country': ad['target_country'] ?? '',
+                  'target_country_code': ad['target_country_code'] ?? '',
+                  'target_city': ad['target_city'] ?? '',
                   'item_type': 'ad',
                 })
             .toList(),
@@ -186,8 +287,19 @@ class AdController extends Controller {
     final cpmBling = data.intValue('cpm_bling') ?? 50;
     final targetMinLevel = data.intValue('target_min_level');
     final targetVerifiedOnly = data.boolValue('target_verified_only');
-    final startAt = data.trimmed('start_at').isEmpty ? null : data.trimmed('start_at');
-    final endAt = data.trimmed('end_at').isEmpty ? null : data.trimmed('end_at');
+    final targetContinent =
+        LocationScopeHelper.normalizeText(data.trimmed('target_continent'));
+    final targetCountry =
+        LocationScopeHelper.normalizeText(data.trimmed('target_country'));
+    final targetCountryCode = LocationScopeHelper.normalizeCountryCode(
+      data.trimmed('target_country_code'),
+    );
+    final targetCity =
+        LocationScopeHelper.normalizeText(data.trimmed('target_city'));
+    final startAt =
+        data.trimmed('start_at').isEmpty ? null : data.trimmed('start_at');
+    final endAt =
+        data.trimmed('end_at').isEmpty ? null : data.trimmed('end_at');
 
     if (title.isEmpty || adBody.isEmpty) {
       return Response.json({'message': 'Title and body are required'}, 422);
@@ -220,6 +332,7 @@ class AdController extends Controller {
         thumbnail_url, video_url, media_kind, storage_bucket, storage_path, mime_type,
         budget_bling, spent_bling, cpm_bling,
         target_min_level, target_verified_only,
+        target_continent, target_country, target_country_code, target_city,
         start_at, end_at, status, is_active,
         total_impressions, total_clicks,
         created_at, updated_at
@@ -228,9 +341,10 @@ class AdController extends Controller {
         \$7, \$8, \$9, \$10, \$11, \$12,
         \$13, 0, \$14,
         \$15, \$16,
-        \$17, \$18, 'active', 1,
+        \$17, \$18, \$19, \$20,
+        \$21, \$22, 'active', 1,
         0, 0,
-        \$19, \$19
+        \$23, \$23
       )
     ''', [
       adId,
@@ -249,6 +363,10 @@ class AdController extends Controller {
       cpmBling,
       targetMinLevel,
       targetVerifiedOnly,
+      targetContinent.isEmpty ? null : targetContinent,
+      targetCountry.isEmpty ? null : targetCountry,
+      targetCountryCode.isEmpty ? null : targetCountryCode,
+      targetCity.isEmpty ? null : targetCity,
       startAt,
       endAt,
       now,
@@ -283,6 +401,7 @@ class AdController extends Controller {
                media_kind, storage_bucket, storage_path, mime_type, target_url,
                budget_bling, spent_bling, cpm_bling,
                target_min_level, target_verified_only,
+               target_continent, target_country, target_country_code, target_city,
                total_impressions, total_clicks, status,
                start_at, end_at, created_at,
                CASE WHEN total_impressions > 0
@@ -314,6 +433,10 @@ class AdController extends Controller {
                   'cpm_bling': a['cpm_bling'],
                   'target_min_level': a['target_min_level'],
                   'target_verified_only': a['target_verified_only'],
+                  'target_continent': a['target_continent'] ?? '',
+                  'target_country': a['target_country'] ?? '',
+                  'target_country_code': a['target_country_code'] ?? '',
+                  'target_city': a['target_city'] ?? '',
                   'total_impressions': a['total_impressions'],
                   'total_clicks': a['total_clicks'],
                   'ctr_percent': a['ctr_percent'],
@@ -359,7 +482,8 @@ class AdController extends Controller {
     }
 
     final current = rows.first;
-    final statusOnly = data.body.keys.length == 1 && data.body.containsKey('status');
+    final statusOnly =
+        data.body.keys.length == 1 && data.body.containsKey('status');
     if (statusOnly) {
       final status = data.trimmed('status');
       if (!['active', 'paused'].contains(status)) {
@@ -380,6 +504,15 @@ class AdController extends Controller {
     final cpmBling = data.intValue('cpm_bling') ?? 50;
     final targetMinLevel = data.intValue('target_min_level');
     final targetVerifiedOnly = data.boolValue('target_verified_only');
+    final targetContinent =
+        LocationScopeHelper.normalizeText(data.trimmed('target_continent'));
+    final targetCountry =
+        LocationScopeHelper.normalizeText(data.trimmed('target_country'));
+    final targetCountryCode = LocationScopeHelper.normalizeCountryCode(
+      data.trimmed('target_country_code'),
+    );
+    final targetCity =
+        LocationScopeHelper.normalizeText(data.trimmed('target_city'));
     final status = data.trimmed('status').isEmpty
         ? current['status']?.toString() ?? 'active'
         : data.trimmed('status');
@@ -445,11 +578,15 @@ class AdController extends Controller {
           cpm_bling = \$12,
           target_min_level = \$13,
           target_verified_only = \$14,
-          start_at = \$15,
-          end_at = \$16,
-          status = \$17,
-          updated_at = \$18
-      WHERE id = \$19
+          target_continent = \$15,
+          target_country = \$16,
+          target_country_code = \$17,
+          target_city = \$18,
+          start_at = \$19,
+          end_at = \$20,
+          status = \$21,
+          updated_at = \$22
+      WHERE id = \$23
       ''',
       [
         title,
@@ -466,6 +603,10 @@ class AdController extends Controller {
         cpmBling,
         targetMinLevel,
         targetVerifiedOnly,
+        targetContinent.isEmpty ? null : targetContinent,
+        targetCountry.isEmpty ? null : targetCountry,
+        targetCountryCode.isEmpty ? null : targetCountryCode,
+        targetCity.isEmpty ? null : targetCity,
         data.trimmed('start_at').isEmpty ? null : data.trimmed('start_at'),
         data.trimmed('end_at').isEmpty ? null : data.trimmed('end_at'),
         budgetBling <= spentBling ? 'exhausted' : status,

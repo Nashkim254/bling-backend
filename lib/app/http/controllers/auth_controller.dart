@@ -7,6 +7,7 @@ import 'package:bling/app/models/block_model.dart';
 import 'package:bling/app/models/follow.dart';
 import 'package:bling/app/models/posts.dart';
 import 'package:bling/app/models/user.dart';
+import 'package:bling/support/location_scope_helper.dart';
 import 'package:bling/app/models/wallet.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vania/vania.dart';
@@ -909,13 +910,42 @@ class AuthController extends Controller {
       return Response.json({'message': 'latitude and longitude required'}, 422);
     }
 
+    final city = LocationScopeHelper.normalizeText(data.trimmed('city'));
+    final region = LocationScopeHelper.normalizeText(data.trimmed('region'));
+    final country = LocationScopeHelper.normalizeText(data.trimmed('country'));
+    final countryCode =
+        LocationScopeHelper.normalizeCountryCode(data.trimmed('country_code'));
+    final continent = LocationScopeHelper.resolveContinent(
+      explicitContinent: data.trimmed('continent'),
+      countryCode: countryCode,
+      country: country,
+    );
+    final now = DateTime.now().toIso8601String();
+
     await User().query().where('id', '=', userId).update({
       'latitude': lat,
       'longitude': lng,
-      'updated_at': DateTime.now().toIso8601String(),
+      'city': city.isEmpty ? null : city,
+      'region': region.isEmpty ? null : region,
+      'country': country.isEmpty ? null : country,
+      'country_code': countryCode.isEmpty ? null : countryCode,
+      'continent': continent.isEmpty ? null : continent,
+      'location_updated_at': now,
+      'updated_at': now,
     });
 
-    return Response.json({'message': 'Location updated'}, 200);
+    return Response.json({
+      'message': 'Location updated',
+      'location': {
+        'latitude': lat,
+        'longitude': lng,
+        'city': city,
+        'region': region,
+        'country': country,
+        'country_code': countryCode,
+        'continent': continent,
+      }
+    }, 200);
   }
 
   /// POST /api/auth/reset-password  (public)

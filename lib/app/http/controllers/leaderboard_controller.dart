@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:bling/support/location_scope_helper.dart';
 import 'package:vania/vania.dart';
 
 class LeaderboardController extends Controller {
@@ -9,14 +10,331 @@ class LeaderboardController extends Controller {
     return Auth().id()?.toString() ?? '';
   }
 
-  /// GET /api/leaderboard?period=global|daily|weekly|monthly
-  ///   &sort_by=score|balance
-  ///   &following_only=true
-  ///   &verified_only=true
-  ///   &page=&limit=
+  String _normalizePeriod(String value) {
+    switch (value.trim().toLowerCase()) {
+      case 'daily':
+        return 'daily';
+      case 'weekly':
+        return 'weekly';
+      case 'monthly':
+        return 'monthly';
+      case 'all_time':
+      case 'alltime':
+      case 'global':
+      default:
+        return 'all_time';
+    }
+  }
+
+  String _normalizeScope(String value) {
+    switch (value.trim().toLowerCase()) {
+      case 'continent':
+        return 'continent';
+      case 'country':
+        return 'country';
+      case 'city':
+        return 'city';
+      case 'global':
+      default:
+        return 'global';
+    }
+  }
+
+  String _scoreOrderExpression(String sortBy) {
+    return sortBy == 'balance'
+        ? 'COALESCE(bling_balance, 0) DESC NULLS LAST, COALESCE(score, 0) DESC NULLS LAST, name ASC, id ASC'
+        : 'COALESCE(score, 0) DESC NULLS LAST, COALESCE(bling_balance, 0) DESC NULLS LAST, name ASC, id ASC';
+  }
+
+  String _periodDateCondition(String period) {
+    switch (period) {
+      case 'daily':
+        return ">= NOW() - INTERVAL '1 day'";
+      case 'weekly':
+        return ">= NOW() - INTERVAL '7 days'";
+      case 'monthly':
+        return ">= NOW() - INTERVAL '30 days'";
+      default:
+        return '';
+    }
+  }
+
+  Future<Map<String, dynamic>> _viewerLocationContext(String authUserId) async {
+    if (authUserId.isEmpty) {
+      return <String, dynamic>{
+        'has_location': false,
+        'continent': '',
+        'country': '',
+        'country_code': '',
+        'city': '',
+      };
+    }
+
+    final rows = await connection!.select(
+      '''
+      SELECT continent, country, country_code, city
+      FROM users
+      WHERE id = \$1
+      LIMIT 1
+      ''',
+      [authUserId],
+    );
+
+    if (rows.isEmpty) {
+      return <String, dynamic>{
+        'has_location': false,
+        'continent': '',
+        'country': '',
+        'country_code': '',
+        'city': '',
+      };
+    }
+
+    final row = Map<String, dynamic>.from(rows.first as Map);
+    final continent =
+        LocationScopeHelper.normalizeText(row['continent']?.toString() ?? '');
+    final country =
+        LocationScopeHelper.normalizeText(row['country']?.toString() ?? '');
+    final countryCode = LocationScopeHelper.normalizeCountryCode(
+      row['country_code']?.toString() ?? '',
+    );
+    final city =
+        LocationScopeHelper.normalizeText(row['city']?.toString() ?? '');
+
+    return <String, dynamic>{
+      'has_location':
+          continent.isNotEmpty || countryCode.isNotEmpty || city.isNotEmpty,
+      'continent': continent,
+      'country': country,
+      'country_code': countryCode,
+      'city': city,
+    };
+  }
+
+  ({String sql, List<dynamic> args, String scopeValue}) _buildBaseQuery({
+    required String period,
+    required String scope,
+    required String sortBy,
+    required bool followingOnly,
+    required bool verifiedOnly,
+    required String search,
+    required String authUserId,
+    required Map<String, dynamic> viewerLocation,
+    required String requestedContinent,
+    required String requestedCountry,
+    required String requestedCountryCode,
+    required String requestedCity,
+  }) {
+    final args = <dynamic>[];
+    String addArg(dynamic value) {
+      args.add(value);
+      return '\$${args.length}';
+    }
+
+    final where = <String>['u.deleted_at IS NULL'];
+    var followingJoin = '';
+
+    if (followingOnly && authUserId.isNotEmpty) {
+      final followerParam = addArg(authUserId);
+      followingJoin =
+          'INNER JOIN follows f ON f.following_id = u.id AND f.follower_id = $followerParam';
+    }
+
+    if (verifiedOnly) {
+      where.add('u.is_verified = true');
+    }
+
+    if (search.trim().isNotEmpty) {
+      final searchParam = addArg('%${search.trim()}%');
+      where.add(
+        '(LOWER(u.name) LIKE LOWER($searchParam) OR LOWER(u.username) LIKE LOWER($searchParam))',
+      );
+    }
+
+    String scopeValue = '';
+    switch (scope) {
+      case 'continent':
+        scopeValue = LocationScopeHelper.normalizeText(
+          requestedContinent.isNotEmpty
+              ? requestedContinent
+              : viewerLocation['continent']?.toString() ?? '',
+        );
+        if (scopeValue.isNotEmpty) {
+          final continentParam = addArg(scopeValue);
+          where.add(
+              'LOWER(COALESCE(u.continent, \'\')) = LOWER($continentParam)');
+        }
+        break;
+      case 'country':
+        final chosenCountryCode = LocationScopeHelper.normalizeCountryCode(
+          requestedCountryCode.isNotEmpty
+              ? requestedCountryCode
+              : viewerLocation['country_code']?.toString() ?? '',
+        );
+        final chosenCountry = LocationScopeHelper.normalizeText(
+          requestedCountry.isNotEmpty
+              ? requestedCountry
+              : viewerLocation['country']?.toString() ?? '',
+        );
+        scopeValue =
+            chosenCountryCode.isNotEmpty ? chosenCountryCode : chosenCountry;
+        if (chosenCountryCode.isNotEmpty) {
+          final countryCodeParam = addArg(chosenCountryCode);
+          where.add(
+            'UPPER(COALESCE(u.country_code, \'\')) = UPPER($countryCodeParam)',
+          );
+        } else if (chosenCountry.isNotEmpty) {
+          final countryParam = addArg(chosenCountry);
+          where.add('LOWER(COALESCE(u.country, \'\')) = LOWER($countryParam)');
+        }
+        break;
+      case 'city':
+        final chosenCity = LocationScopeHelper.normalizeText(
+          requestedCity.isNotEmpty
+              ? requestedCity
+              : viewerLocation['city']?.toString() ?? '',
+        );
+        final chosenCountryCode = LocationScopeHelper.normalizeCountryCode(
+          requestedCountryCode.isNotEmpty
+              ? requestedCountryCode
+              : viewerLocation['country_code']?.toString() ?? '',
+        );
+        scopeValue = chosenCity;
+        if (chosenCity.isNotEmpty) {
+          final cityParam = addArg(chosenCity);
+          where.add('LOWER(COALESCE(u.city, \'\')) = LOWER($cityParam)');
+          if (chosenCountryCode.isNotEmpty) {
+            final countryCodeParam = addArg(chosenCountryCode);
+            where.add(
+              'UPPER(COALESCE(u.country_code, \'\')) = UPPER($countryCodeParam)',
+            );
+          }
+        }
+        break;
+    }
+
+    final whereClause = where.join(' AND ');
+
+    final baseSql = switch (period) {
+      'daily' || 'weekly' || 'monthly' => _buildTimedLeaderboardQuery(
+          whereClause: whereClause,
+          followingJoin: followingJoin,
+          dateCondition: _periodDateCondition(period),
+        ),
+      _ => _buildAllTimeLeaderboardQuery(
+          whereClause: whereClause,
+          followingJoin: followingJoin,
+        ),
+    };
+
+    return (
+      sql: baseSql,
+      args: args,
+      scopeValue: scopeValue,
+    );
+  }
+
+  String _buildAllTimeLeaderboardQuery({
+    required String whereClause,
+    required String followingJoin,
+  }) {
+    return '''
+      SELECT
+        u.id,
+        u.name,
+        u.username,
+        u.avatar,
+        u.is_verified,
+        u.city,
+        u.region,
+        u.country,
+        u.country_code,
+        u.continent,
+        COALESCE(u.bling_score, 0) AS score,
+        COALESCE(w.balance, 0) AS bling_balance
+      FROM users u
+      LEFT JOIN wallets w ON w.user_id = u.id
+      $followingJoin
+      WHERE $whereClause
+    ''';
+  }
+
+  String _buildTimedLeaderboardQuery({
+    required String whereClause,
+    required String followingJoin,
+    required String dateCondition,
+  }) {
+    return '''
+      SELECT
+        u.id,
+        u.name,
+        u.username,
+        u.avatar,
+        u.is_verified,
+        u.city,
+        u.region,
+        u.country,
+        u.country_code,
+        u.continent,
+        COALESCE(SUM(COALESCE(post_likes.like_count, 0)), 0) +
+          COALESCE(COUNT(DISTINCT ce.id) * 5, 0) AS score,
+        COALESCE(w.balance, 0) AS bling_balance
+      FROM users u
+      LEFT JOIN wallets w ON w.user_id = u.id
+      LEFT JOIN posts p ON p.user_id = u.id AND p.created_at $dateCondition
+      LEFT JOIN (
+        SELECT post_id, COUNT(*) AS like_count
+        FROM likes
+        GROUP BY post_id
+      ) post_likes ON post_likes.post_id = p.id
+      LEFT JOIN challenge_entries ce
+        ON ce.user_id = u.id AND ce.created_at $dateCondition
+      $followingJoin
+      WHERE $whereClause
+      GROUP BY
+        u.id, u.name, u.username, u.avatar, u.is_verified,
+        u.city, u.region, u.country, u.country_code, u.continent,
+        w.balance
+    ''';
+  }
+
+  List<Map<String, dynamic>> _serializeLeaderboardRows(
+    List<dynamic> rows,
+    String authUserId,
+  ) {
+    return rows
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .map((row) => <String, dynamic>{
+              'rank': (row['rank'] as num?)?.toInt() ?? 0,
+              'id': row['id']?.toString() ?? '',
+              'name': row['name']?.toString() ?? '',
+              'username': row['username']?.toString() ?? '',
+              'avatar': row['avatar']?.toString() ?? '',
+              'is_verified':
+                  row['is_verified'] == true || row['is_verified'] == 1,
+              'score': (row['score'] as num?)?.toInt() ?? 0,
+              'bling_balance': (row['bling_balance'] as num?)?.toInt() ?? 0,
+              'is_me': (row['id']?.toString() ?? '') == authUserId,
+              'continent': row['continent']?.toString() ?? '',
+              'country': row['country']?.toString() ?? '',
+              'country_code': row['country_code']?.toString() ?? '',
+              'city': row['city']?.toString() ?? '',
+            })
+        .toList();
+  }
+
+  /// GET /api/leaderboard
+  /// scope=global|continent|country|city
+  /// period=all_time|daily|weekly|monthly
   Future<Response> getLeaderboard(Request request) async {
-    final period = request.input('period')?.toString() ?? 'global';
-    final sortBy = request.input('sort_by')?.toString() ?? 'score';
+    final scope =
+        _normalizeScope(request.input('scope')?.toString() ?? 'global');
+    final period = _normalizePeriod(
+      request.input('period')?.toString() ?? 'all_time',
+    );
+    final sortBy =
+        request.input('sort_by')?.toString() == 'balance' ? 'balance' : 'score';
     final followingOnly = request.input('following_only')?.toString() == 'true';
     final verifiedOnly = request.input('verified_only')?.toString() == 'true';
     final search = request.input('search')?.toString().trim() ?? '';
@@ -25,111 +343,119 @@ class LeaderboardController extends Controller {
         int.tryParse(request.input('limit')?.toString() ?? '50') ?? 50;
     final authUserId = _authUserId(request);
 
+    final requestedContinent =
+        request.input('continent')?.toString().trim() ?? '';
+    final requestedCountry = request.input('country')?.toString().trim() ?? '';
+    final requestedCountryCode =
+        request.input('country_code')?.toString().trim() ?? '';
+    final requestedCity = request.input('city')?.toString().trim() ?? '';
+
     try {
-      // Period date filter
-      String dateFilter = '';
-      if (period == 'daily') {
-        dateFilter = "AND p.created_at >= NOW() - INTERVAL '1 day'";
-      } else if (period == 'weekly') {
-        dateFilter = "AND p.created_at >= NOW() - INTERVAL '7 days'";
-      } else if (period == 'monthly') {
-        dateFilter = "AND p.created_at >= NOW() - INTERVAL '30 days'";
+      final viewerLocation = await _viewerLocationContext(authUserId);
+      final query = _buildBaseQuery(
+        period: period,
+        scope: scope,
+        sortBy: sortBy,
+        followingOnly: followingOnly,
+        verifiedOnly: verifiedOnly,
+        search: search,
+        authUserId: authUserId,
+        viewerLocation: viewerLocation,
+        requestedContinent: requestedContinent,
+        requestedCountry: requestedCountry,
+        requestedCountryCode: requestedCountryCode,
+        requestedCity: requestedCity,
+      );
+
+      if (scope != 'global' && query.scopeValue.isEmpty) {
+        return Response.json({
+          'leaderboard': {
+            'scope': scope,
+            'scope_value': '',
+            'period': period,
+            'sort_by': sortBy,
+            'page': page,
+            'limit': limit,
+            'total_count': 0,
+            'my_rank': null,
+            'my_entry': null,
+            'location_context': viewerLocation,
+            'data': <Map<String, dynamic>>[],
+          }
+        }, HttpStatus.ok);
       }
 
-      // Verified filter
-      final verifiedClause = verifiedOnly ? 'AND u.is_verified = true' : '';
+      final rankingOrder = _scoreOrderExpression(sortBy);
+      final pagingArgs = List<dynamic>.from(query.args);
+      pagingArgs.add(limit);
+      final limitPlaceholder = '\$${pagingArgs.length}';
+      pagingArgs.add((page - 1) * limit);
+      final offsetPlaceholder = '\$${pagingArgs.length}';
 
-      // Search filter
-      final searchClause = search.isNotEmpty
-          ? "AND (LOWER(u.name) LIKE LOWER('%$search%') OR LOWER(u.username) LIKE LOWER('%$search%'))"
-          : '';
+      final pagedRows = await connection!.select(
+        '''
+        WITH ranked AS (
+          SELECT
+            base.*,
+            ROW_NUMBER() OVER (ORDER BY $rankingOrder) AS rank
+          FROM (${query.sql}) base
+        )
+        SELECT *
+        FROM ranked
+        ORDER BY rank ASC
+        LIMIT $limitPlaceholder OFFSET $offsetPlaceholder
+        ''',
+        pagingArgs,
+      );
 
-      // Following filter — only applies when auth user is known
-      final followingJoin = followingOnly && authUserId.isNotEmpty
-          ? "INNER JOIN follows f ON f.following_id = u.id AND f.follower_id = '$authUserId'"
-          : '';
-
-      // Sort column
-      final sortColumn = sortBy == 'balance' ? 'w.balance' : 'u.bling_score';
-      final scoreAlias = sortBy == 'balance' ? 'w.balance' : 'u.bling_score';
-
-      List<dynamic> leaders;
-
-      if (period == 'global') {
-        leaders = await connection!.select(
-          '''SELECT u.id, u.name, u.username, u.avatar, u.is_verified,
-             $scoreAlias as score,
-             w.balance as bling_balance,
-             ROW_NUMBER() OVER (ORDER BY $sortColumn DESC NULLS LAST) as rank
-             FROM users u
-             LEFT JOIN wallets w ON w.user_id = u.id
-             $followingJoin
-             WHERE u.deleted_at IS NULL $verifiedClause $searchClause
-             ORDER BY $sortColumn DESC NULLS LAST
-             LIMIT \$1 OFFSET \$2''',
-          [limit, (page - 1) * limit],
-        );
-      } else {
-        // Time-based: score = likes received + challenge entries * 5
-        leaders = await connection!.select(
-          '''SELECT u.id, u.name, u.username, u.avatar, u.is_verified,
-             COALESCE(SUM(DISTINCT post_likes.like_count), 0) +
-             COALESCE(COUNT(DISTINCT ce.id) * 5, 0) as score,
-             w.balance as bling_balance,
-             ROW_NUMBER() OVER (ORDER BY (COALESCE(SUM(DISTINCT post_likes.like_count), 0) + COALESCE(COUNT(DISTINCT ce.id) * 5, 0)) DESC) as rank
-             FROM users u
-             LEFT JOIN wallets w ON w.user_id = u.id
-             LEFT JOIN posts p ON p.user_id = u.id $dateFilter
-             LEFT JOIN (
-               SELECT post_id, COUNT(*) as like_count
-               FROM likes
-               GROUP BY post_id
-             ) post_likes ON post_likes.post_id = p.id
-             LEFT JOIN challenge_entries ce ON ce.user_id = u.id
-             $followingJoin
-             WHERE u.deleted_at IS NULL $verifiedClause $searchClause
-             GROUP BY u.id, u.name, u.username, u.avatar, u.is_verified, w.balance
-             ORDER BY score DESC
-             LIMIT \$1 OFFSET \$2''',
-          [limit, (page - 1) * limit],
-        );
-      }
-
-      // Find auth user's rank
       int? myRank;
-      final leaderRows = leaders
-          .whereType<Map>()
-          .map((row) => Map<String, dynamic>.from(row))
-          .where((row) => (row['id']?.toString() ?? '').isNotEmpty)
-          .toList();
-
+      Map<String, dynamic>? myEntry;
       if (authUserId.isNotEmpty) {
-        final idx = leaderRows.indexWhere((l) => l['id'] == authUserId);
-        if (idx >= 0) {
-          myRank = (leaderRows[idx]['rank'] as num?)?.toInt();
+        final myRankArgs = List<dynamic>.from(query.args)..add(authUserId);
+        final authPlaceholder = '\$${myRankArgs.length}';
+        final myRows = await connection!.select(
+          '''
+          WITH ranked AS (
+            SELECT
+              base.*,
+              ROW_NUMBER() OVER (ORDER BY $rankingOrder) AS rank
+            FROM (${query.sql}) base
+          )
+          SELECT *
+          FROM ranked
+          WHERE id = $authPlaceholder
+          LIMIT 1
+          ''',
+          myRankArgs,
+        );
+        if (myRows.isNotEmpty) {
+          final serializedRows = _serializeLeaderboardRows(myRows, authUserId);
+          if (serializedRows.isNotEmpty) {
+            myEntry = serializedRows.first;
+            myRank = myEntry['rank'] as int?;
+          }
         }
       }
 
+      final countRows = await connection!.select(
+        'SELECT COUNT(*) AS cnt FROM (${query.sql}) base',
+        query.args,
+      );
+      final totalCount = (countRows.first['cnt'] as num?)?.toInt() ?? 0;
+
       return Response.json({
         'leaderboard': {
+          'scope': scope,
+          'scope_value': query.scopeValue,
           'period': period,
           'sort_by': sortBy,
           'page': page,
+          'limit': limit,
+          'total_count': totalCount,
           'my_rank': myRank,
-          'data': leaderRows
-              .map((l) => {
-                    'rank': (l['rank'] as num?)?.toInt(),
-                    'id': l['id']?.toString() ?? '',
-                    'name': l['name']?.toString() ?? '',
-                    'username': l['username']?.toString() ?? '',
-                    'avatar': l['avatar']?.toString() ?? '',
-                    'is_verified':
-                        l['is_verified'] == true || l['is_verified'] == 1,
-                    'score': (l['score'] as num?)?.toInt() ?? 0,
-                    'bling_balance': (l['bling_balance'] as num?)?.toInt() ?? 0,
-                    'is_me': l['id'] == authUserId,
-                  })
-              .toList(),
+          'my_entry': myEntry,
+          'location_context': viewerLocation,
+          'data': _serializeLeaderboardRows(pagedRows, authUserId),
         }
       }, HttpStatus.ok);
     } catch (e) {
