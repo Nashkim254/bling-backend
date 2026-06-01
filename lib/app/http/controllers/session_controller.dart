@@ -8,16 +8,16 @@ class SessionController extends Controller {
   Future<Map<String, dynamic>> createSession({required String userId}) async {
     String token = '';
     print("Token: $token");
+    final now = DateTime.now().toIso8601String();
     Map<String, dynamic> values = {
       'user_id': userId,
       'status': 'active',
       'type': 'user',
       'token': token,
-      'created_at': DateTime.now(),
-      'updated_at': DateTime.now(),
-      'expires_at': DateTime.now().add(
-        const Duration(hours: 1),
-      ),
+      'created_at': now,
+      'updated_at': now,
+      'expires_at':
+          DateTime.now().add(const Duration(hours: 1)).toIso8601String(),
     };
     await Session().query().insert(values);
     return values;

@@ -15,6 +15,11 @@ import 'package:vania/vania.dart';
 class AuthController extends Controller {
   static const int verificationBadgeCost = 1500;
 
+  String _normalizeTimestamp(dynamic value) {
+    if (value is DateTime) return value.toIso8601String();
+    return value?.toString() ?? '';
+  }
+
   /// POST /api/register
   Future<Response> register(Request request) async {
     final data = RequestData(request);
@@ -146,8 +151,8 @@ class AuthController extends Controller {
     String refreshToken = '';
     try {
       final auth = Auth().login(user);
-      user['created_at'] = user['created_at'].toIso8601String();
-      user['updated_at'] = user['updated_at'].toIso8601String();
+      user['created_at'] = _normalizeTimestamp(user['created_at']);
+      user['updated_at'] = _normalizeTimestamp(user['updated_at']);
       final token = await auth.createToken(
         expiresIn: const Duration(hours: 24),
         withRefreshToken: true,
@@ -206,8 +211,8 @@ class AuthController extends Controller {
         return Response.json({'message': 'User not found'}, 401);
       }
 
-      user['created_at'] = user['created_at'].toIso8601String();
-      user['updated_at'] = user['updated_at'].toIso8601String();
+      user['created_at'] = _normalizeTimestamp(user['created_at']);
+      user['updated_at'] = _normalizeTimestamp(user['updated_at']);
 
       final auth = Auth().login(user);
       final token = await auth.createToken(
