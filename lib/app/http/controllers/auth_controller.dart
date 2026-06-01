@@ -222,8 +222,10 @@ class AuthController extends Controller {
         return Response.json({'message': 'User not found'}, 401);
       }
 
-      user = _normalizeAuthPayload(Map<String, dynamic>.from(user));
-      final auth = Auth().login(user);
+      final normalizedUser = _normalizeAuthPayload(
+        Map<String, dynamic>.from(user),
+      );
+      final auth = Auth().login(normalizedUser);
       final token = await auth.createToken(
         expiresIn: const Duration(hours: 24),
         withRefreshToken: true,
