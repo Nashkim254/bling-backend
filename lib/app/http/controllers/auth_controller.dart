@@ -20,6 +20,18 @@ class AuthController extends Controller {
     return value?.toString() ?? '';
   }
 
+  Map<String, dynamic> _normalizeAuthPayload(Map<String, dynamic> payload) {
+    final normalized = <String, dynamic>{};
+    payload.forEach((key, value) {
+      if (value is DateTime) {
+        normalized[key] = value.toIso8601String();
+      } else {
+        normalized[key] = value;
+      }
+    });
+    return normalized;
+  }
+
   /// POST /api/register
   Future<Response> register(Request request) async {
     final data = RequestData(request);
@@ -150,9 +162,8 @@ class AuthController extends Controller {
     String accessToken = '';
     String refreshToken = '';
     try {
+      user = _normalizeAuthPayload(Map<String, dynamic>.from(user));
       final auth = Auth().login(user);
-      user['created_at'] = _normalizeTimestamp(user['created_at']);
-      user['updated_at'] = _normalizeTimestamp(user['updated_at']);
       final token = await auth.createToken(
         expiresIn: const Duration(hours: 24),
         withRefreshToken: true,
@@ -211,9 +222,7 @@ class AuthController extends Controller {
         return Response.json({'message': 'User not found'}, 401);
       }
 
-      user['created_at'] = _normalizeTimestamp(user['created_at']);
-      user['updated_at'] = _normalizeTimestamp(user['updated_at']);
-
+      user = _normalizeAuthPayload(Map<String, dynamic>.from(user));
       final auth = Auth().login(user);
       final token = await auth.createToken(
         expiresIn: const Duration(hours: 24),
